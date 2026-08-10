@@ -24,3 +24,32 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* The school app manages its own scrolling inside a 100dvh shell, so the page
+   itself must never scroll or rubber-band on mobile. */
+html,
+body {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Comfortable minimum tap target for controls on touch screens. */
+@media (max-width: 820px) {
+  button,
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    touch-action: manipulation;
+  }
+}
+
+/* Print: drop the chrome (drawer, top bar, toasts) so report cards and class
+   lists print as clean documents. */
+@media print {
+  html,
+  body {
+    overflow: visible;
+    height: auto;
+    background: #fff;
+  }
+}
