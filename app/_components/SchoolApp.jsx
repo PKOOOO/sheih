@@ -4,16 +4,14 @@ import { LOGO_SRC } from "../_lib/logo";
 import { T } from "../_lib/i18n";
 import { DEFAULT_CBE_GRADES, getCBELevel } from "../_lib/grading";
 import { DEFAULT_GRADES } from "../_lib/schoolStructure";
-import {
-  uid, storageGet, storageSet, downloadJSON, nowStamp,
-  STORAGE_KEY, DATA_VERSION,
-} from "../_lib/storage";
+import { downloadJSON, nowStamp } from "../_lib/storage";
 import { colors, makeCss } from "../_lib/theme";
 import { useIsMobile } from "../_lib/useIsMobile";
+import { INITIAL_STREAMS, seedUsers } from "../_lib/seed";
 import {
-  INITIAL_STREAMS, INITIAL_STUDENTS, INITIAL_TEACHERS, INITIAL_SUBJECTS,
-  INITIAL_EXAMS, INITIAL_RESULTS, seedUsers,
-} from "../_lib/seed";
+  apiBootstrap, apiCreate, apiUpdate, apiDelete, apiSaveSettings, diffCollection,
+  apiLogout, apiMe,
+} from "../../lib/api-client";
 
 import Toast from "./Toast";
 import ConfirmDialog from "./ConfirmDialog";
@@ -59,20 +57,31 @@ export default function SchoolApp() {
 
   // ── Auth state ──
   const [currentUser, setCurrentUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Resume an existing session (valid cookie) on first mount.
+  useEffect(() => {
+    let cancelled = false;
+    apiMe()
+      .then(user => { if (!cancelled && user) setCurrentUser(user); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setAuthChecked(true); });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Editable streams (per level) ──
-  const [streams, setStreams] = useState(INITIAL_STREAMS);
+  const [streams, setStreams] = useState([]);
 
   const gradesFor = (level) => gradesForLevel(level);
   const streamsFor = (level) => streams.filter(s => s.level === level).map(s => s.name);
 
-  // ── Core data ──
-  const [students, setStudents] = useState(INITIAL_STUDENTS);
-  const [teachers, setTeachers] = useState(INITIAL_TEACHERS);
-  const [subjects, setSubjects] = useState(INITIAL_SUBJECTS);
-  const [exams, setExams] = useState(INITIAL_EXAMS);
-  const [results, setResults] = useState(() => INITIAL_RESULTS);
-  const [users, setUsers] = useState(() => seedUsers(teachers, students));
+  // ── Core data (loaded from the database via /api/bootstrap) ──
+  const [students, setStudents] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [exams, setExams] = useState([]);
+  const [results, setResults] = useState([]);
+  const [users, setUsers] = useState([]);
 
   // ── Adjustable CBC grade bands (must be declared before persistence hooks) ──
   const [cbeGrades, setCbeGrades] = useState(DEFAULT_CBE_GRADES.map(g => ({ ...g })));
@@ -82,61 +91,122 @@ export default function SchoolApp() {
   const [extraGrades, setExtraGrades] = useState({ junior: [], senior: [] });
   const gradesForLevel = (level) => [...(DEFAULT_GRADES[level] || []), ...(extraGrades[level] || [])];
 
-  // ── Data persistence (load on mount, auto-save on change) ──
+  // ── Data persistence (load from DB on mount, diff-sync on change) ──
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
   const saveTimerRef = useRef(null);
   const hydratedRef = useRef(false);
+  // Server-acknowledged snapshot: what the database currently holds. Every
+  // state change is diffed against this to produce POST/PUT/DELETE calls.
+  const lastSyncedRef = useRef(null);
+  // Freshest state, so the debounced sync reads current values when it fires.
+  const liveRef = useRef(null);
+  const syncingRef = useRef(false);
 
-  // Load any previously saved data once on first mount
+  // Load everything from the database once signed in (/api/bootstrap is protected)
   useEffect(() => {
+    if (!currentUser || dataLoaded) return;
     let cancelled = false;
     (async () => {
-      const saved = await storageGet(STORAGE_KEY);
-      if (cancelled) return;
-      if (saved && saved.version === DATA_VERSION && saved.data) {
-        const d = saved.data;
-        if (d.streams) setStreams(d.streams);
-        if (d.students) setStudents(d.students);
-        if (d.teachers) setTeachers(d.teachers);
-        if (d.subjects) setSubjects(d.subjects);
-        if (d.exams) setExams(d.exams);
-        if (d.results) setResults(d.results);
-        if (d.users) setUsers(d.users);
-        if (d.lang) setLang(d.lang);
-        if (d.cbeGrades) setCbeGrades(d.cbeGrades);
-        if (d.extraGrades) setExtraGrades(d.extraGrades);
-        setLastSavedAt(saved.savedAt || null);
+      try {
+        const d = await apiBootstrap();
+        if (cancelled) return;
+        setStreams(d.streams); setStudents(d.students); setTeachers(d.teachers);
+        setSubjects(d.subjects); setExams(d.exams); setResults(d.results); setUsers(d.users);
+        if (d.settings) {
+          if (d.settings.lang) setLang(d.settings.lang);
+          if (d.settings.cbeGrades) setCbeGrades(d.settings.cbeGrades);
+          if (d.settings.extraGrades) setExtraGrades(d.settings.extraGrades);
+        }
+        lastSyncedRef.current = {
+          streams: d.streams, students: d.students, teachers: d.teachers,
+          subjects: d.subjects, exams: d.exams, results: d.results, users: d.users,
+          settings: d.settings,
+        };
+        hydratedRef.current = true;
+        setDataLoaded(true);
+      } catch (e) {
+        console.error("Bootstrap failed:", e);
+        if (!cancelled) setLoadError(String(e.message || e));
       }
-      hydratedRef.current = true;
-      setDataLoaded(true);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [currentUser, dataLoaded]);
 
   const buildSnapshot = useCallback(() => ({
     streams, students, teachers, subjects, exams, results, users, lang, cbeGrades, extraGrades,
   }), [streams, students, teachers, subjects, exams, results, users, lang, cbeGrades, extraGrades]);
 
-  // Debounced auto-save whenever core data changes (skipped until initial load completes)
+  // Push the difference between client state and the last-synced snapshot to
+  // the API. Order matters for foreign keys: results are deleted first and
+  // created last, so they never reference a row that doesn't exist yet.
+  // Plain hoisted function (not useCallback) so it can reschedule itself when
+  // a sync is already in flight; it only ever reads state through refs.
+  async function syncToServer() {
+    if (syncingRef.current) {
+      // A sync is in flight — try again shortly with whatever state is current then.
+      saveTimerRef.current = setTimeout(syncToServer, 400);
+      return;
+    }
+    syncingRef.current = true;
+    const live = liveRef.current;
+    const base = lastSyncedRef.current;
+    const PARENTS = ["streams", "students", "teachers", "subjects", "exams", "users"];
+    try {
+      const diffs = {};
+      for (const key of [...PARENTS, "results"]) {
+        diffs[key] = diffCollection(base[key], live[key]);
+      }
+      // 1. deletes: results first, then parent collections
+      await Promise.all(diffs.results.deletedIds.map(id => apiDelete("results", id)));
+      for (const key of PARENTS) {
+        await Promise.all(diffs[key].deletedIds.map(id => apiDelete(key, id)));
+      }
+      // 2. creates/updates: parents first, then results
+      for (const key of PARENTS) {
+        await Promise.all([
+          ...diffs[key].created.map(row => apiCreate(key, row)),
+          ...diffs[key].updated.map(row => apiUpdate(key, row)),
+        ]);
+      }
+      await Promise.all([
+        ...diffs.results.created.map(row => apiCreate("results", row)),
+        ...diffs.results.updated.map(row => apiUpdate("results", row)),
+      ]);
+      // 3. settings
+      if (JSON.stringify(live.settings) !== JSON.stringify(base.settings)) {
+        await apiSaveSettings(live.settings);
+      }
+      lastSyncedRef.current = live;
+      setSaveStatus("saved");
+      setLastSavedAt(new Date().toISOString());
+    } catch (e) {
+      console.error("Sync failed:", e);
+      setSaveStatus("error");
+    } finally {
+      syncingRef.current = false;
+    }
+  }
+
+  // Debounced auto-sync whenever data changes (skipped until initial load completes)
   useEffect(() => {
+    liveRef.current = {
+      streams, students, teachers, subjects, exams, results, users,
+      settings: { lang, cbeGrades, extraGrades },
+    };
     if (!hydratedRef.current) return;
     setSaveStatus("saving");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      const savedAt = new Date().toISOString();
-      const ok = await storageSet(STORAGE_KEY, { version: DATA_VERSION, savedAt, data: buildSnapshot() });
-      setSaveStatus(ok ? "saved" : "error");
-      if (ok) setLastSavedAt(savedAt);
-    }, 800);
+    saveTimerRef.current = setTimeout(syncToServer, 800);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streams, students, teachers, subjects, exams, results, users, lang, cbeGrades, extraGrades]);
 
   const manualBackupDownload = () => {
-    downloadJSON(`skbzs-sms-backup-${nowStamp()}.json`, { version: DATA_VERSION, savedAt: new Date().toISOString(), data: buildSnapshot() });
+    downloadJSON(`skbzs-sms-backup-${nowStamp()}.json`, { version: 1, savedAt: new Date().toISOString(), data: buildSnapshot() });
   };
 
   const restoreFromBackupFile = (file) => {
@@ -164,14 +234,7 @@ export default function SchoolApp() {
   };
 
   const resetAllData = () => {
-    setStreams([
-      { id: uid(), name: "R", level: "junior" }, { id: uid(), name: "G", level: "junior" },
-      { id: uid(), name: "W", level: "junior" }, { id: uid(), name: "B", level: "junior" },
-      { id: uid(), name: "A", level: "senior" }, { id: uid(), name: "B", level: "senior" },
-      { id: uid(), name: "C", level: "senior" }, { id: uid(), name: "D", level: "senior" },
-      { id: uid(), name: "E", level: "senior" }, { id: uid(), name: "F", level: "senior" },
-      { id: uid(), name: "G", level: "senior" }, { id: uid(), name: "H", level: "senior" },
-    ]);
+    setStreams(INITIAL_STREAMS.map(s => ({ ...s })));
     setStudents([]);
     setTeachers([]);
     setSubjects([]);
@@ -206,13 +269,39 @@ export default function SchoolApp() {
   // Navigating always dismisses the mobile drawer.
   const goToPage = (key) => { setPage(key); setNavOpen(false); };
 
+  const splash = (content) => (
+    <div style={{
+      minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", gap: 14, background: colors.light,
+      fontFamily: "'Segoe UI', Arial, sans-serif", color: colors.primary, padding: 20, textAlign: "center",
+    }}>
+      <img src={LOGO_SRC} alt="Logo" style={{ width: 64, height: 64, objectFit: "contain" }} />
+      {content}
+    </div>
+  );
+
+  // 1. Session check → 2. login → 3. database bootstrap → 4. the app.
+  if (!authChecked) return splash(<div style={{ fontWeight: 600 }}>Loading…</div>);
+
   if (!currentUser) {
     return (
       <LoginScreen
         t={t} dir={dir} lang={lang} setLang={setLang} colors={colors} css={css}
-        users={users} setCurrentUser={setCurrentUser} setPage={setPage}
+        setCurrentUser={setCurrentUser} setPage={setPage}
       />
     );
+  }
+
+  if (!dataLoaded) {
+    return splash(loadError ? (
+      <>
+        <div style={{ fontWeight: 700 }}>Could not reach the database</div>
+        <div style={{ fontSize: 13, color: colors.muted, maxWidth: 380 }}>{loadError}</div>
+        <button style={css.btn()} onClick={() => window.location.reload()}>Retry</button>
+      </>
+    ) : (
+      <div style={{ fontWeight: 600 }}>Loading…</div>
+    ));
   }
 
   const navItems = navItemsFor(currentUser.role);
@@ -234,6 +323,7 @@ export default function SchoolApp() {
   const activePage = navItems.find(n => n.key === page) ? page : navItems[0]?.key;
 
   const handleLogout = () => {
+    apiLogout().catch(() => {}); // clear the session cookie server-side
     setCurrentUser(null);
     setPage("dashboard");
   };

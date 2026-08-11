@@ -3,38 +3,37 @@ import { useState } from "react";
 import { LOGO_SRC } from "../../_lib/logo";
 import { SCHOOL_NAMES } from "../../_lib/i18n";
 import { useIsMobile } from "../../_lib/useIsMobile";
+import { apiLogin } from "../../../lib/api-client";
 import LangSwitch from "../LangSwitch";
 
-// Login screen, extracted from App() in index.jsx.
-export default function LoginScreen({ t, dir, lang, setLang, colors, css, users, setCurrentUser, setPage }) {
+// Login screen. Credentials are checked server-side against the database
+// (POST /api/auth/login), which sets the session cookie all API routes require.
+export default function LoginScreen({ t, dir, lang, setLang, colors, css, setCurrentUser, setPage }) {
   const isMobile = useIsMobile();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const demoAccounts = [
-    { role: "admin", label: t.users.roles.admin, color: "#7f1d1d", bg: "#fee2e2" },
-    { role: "registrar", label: t.users.roles.registrar, color: "#1e3a8a", bg: "#dbeafe" },
-    { role: "teacher", label: t.users.roles.teacher, color: "#14532d", bg: "#dcfce7" },
-    { role: "examOfficer", label: t.users.roles.examOfficer, color: "#854d0e", bg: "#fef9c3" },
-    { role: "parent", label: t.users.roles.parent, color: "#581c87", bg: "#f3e8ff" },
-  ];
-
-  const attemptLogin = (uname, pwd) => {
-    const user = users.find(u => u.username.toLowerCase() === uname.toLowerCase() && u.password === pwd);
-    if (!user) { setError(t.login.invalidCreds); return; }
-    if (user.status !== "Active") { setError(t.login.accountSuspended); return; }
+  const attemptLogin = async (uname, pwd) => {
+    if (busy) return;
+    setBusy(true);
     setError("");
-    setCurrentUser(user);
-    setPage(user.role === "parent" ? "myResults" : "dashboard");
+    try {
+      const { user } = await apiLogin(uname, pwd);
+      setCurrentUser(user);
+      setPage(user.role === "parent" ? "myResults" : "dashboard");
+    } catch (e) {
+      setError(e.message === "suspended" ? t.login.accountSuspended : t.login.invalidCreds);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const fillDemo = (role) => {
-    const u = users.find(x => x.role === role);
-    if (!u) return;
-    setUsername(u.username);
-    setPassword(u.password);
-    attemptLogin(u.username, u.password);
+  const fillDemo = () => {
+    setUsername("iman");
+    setPassword("1234");
+    attemptLogin("iman", "1234");
   };
 
   return (
@@ -83,21 +82,21 @@ export default function LoginScreen({ t, dir, lang, setLang, colors, css, users,
             <label style={css.label}>{t.login.password}</label>
             <input type="password" style={css.input} value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && attemptLogin(username, password)} placeholder="••••••••" />
           </div>
-          <button style={{ ...css.btn(), width: "100%", padding: "10px 18px", fontSize: 14, marginTop: 6 }} onClick={() => attemptLogin(username, password)}>
-            {t.login.signIn}
+          <button
+            style={{ ...css.btn(), width: "100%", padding: "10px 18px", fontSize: 14, marginTop: 6, opacity: busy ? 0.6 : 1 }}
+            disabled={busy}
+            onClick={() => attemptLogin(username, password)}
+          >
+            {busy ? "…" : t.login.signIn}
           </button>
 
           <div style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${colors.border}` }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: colors.primary, marginBottom: 4 }}>{t.login.demoTitle}</div>
             <div style={{ fontSize: 11, color: colors.muted, marginBottom: 10 }}>{t.login.demoHint}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {demoAccounts.map(d => (
-                <button key={d.role} onClick={() => fillDemo(d.role)} style={{
-                  padding: "4px 10px", borderRadius: 14, border: "none", fontSize: 11, fontWeight: 700,
-                  color: d.color, background: d.bg, cursor: "pointer",
-                }}>{d.label}</button>
-              ))}
-            </div>
+            <button onClick={fillDemo} style={{
+              padding: "5px 12px", borderRadius: 14, border: "none", fontSize: 12, fontWeight: 700,
+              color: "#7f1d1d", background: "#fee2e2", cursor: "pointer",
+            }}>iman / 1234</button>
           </div>
 
           <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>

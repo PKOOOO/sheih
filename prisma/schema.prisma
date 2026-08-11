@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// School levels are the strings "junior" | "senior" throughout the app;
+// kept as String (not enum) to match the existing client code exactly.
+
+model Stream {
+  id    String @id
+  name  String
+  level String
+}
+
+model Student {
+  id      String   @id
+  name    String
+  level   String
+  grade   String
+  stream  String
+  gender  String
+  admNo   String
+  dob     String   @default("")
+  parent  String   @default("")
+  phone   String   @default("")
+  results Result[]
+}
+
+model Teacher {
+  id       String   @id
+  name     String
+  staffId  String
+  email    String   @default("")
+  phone    String   @default("")
+  subjects String[] @default([])
+  classes  String[] @default([])
+}
+
+model Subject {
+  id          String   @id
+  name        String
+  code        String
+  category    String   @default("")
+  description String   @default("")
+  levels      String[] @default([])
+  results     Result[]
+}
+
+model Exam {
+  id       String   @id
+  examName String
+  term     String
+  year     String
+  maxScore Int      @default(100)
+  passMark Int      @default(40)
+  weight   Int      @default(100)
+  level    String
+  grades   String[] @default([])
+  status   String   @default("Active")
+  results  Result[]
+}
+
+model Result {
+  id        String  @id
+  examId    String
+  studentId String
+  subjectId String
+  score     Float
+  exam      Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, studentId, subjectId])
+}
+
+model UserAccount {
+  id              String @id
+  fullName        String
+  username        String @unique
+  password        String
+  email           String @default("")
+  role            String
+  status          String @default("Active")
+  linkedTeacherId String @default("")
+  linkedStudentId String @default("")
+}
+
+// Single-row bag for app-wide settings the UI can edit:
+// custom CBC grade bands, extra grade levels, language.
+model AppSetting {
+  key  String @id
+  json Json
+}
