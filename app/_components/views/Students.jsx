@@ -1,25 +1,57 @@
 "use client";
 import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { Check, FileDown, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { DEFAULT_GRADES } from "../../_lib/schoolStructure";
 import { uid, downloadWorkbook, nowStamp } from "../../_lib/storage";
+import LevelToggle from "../LevelToggle";
+import PageHeader from "../PageHeader";
+
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+
+const LEVEL_BADGE = {
+  junior: "bg-[#bee5eb] text-[#0c5460]",
+  senior: "bg-[#e8f0ed] text-primary",
+};
 
 // Student management view, extracted from App() in index.jsx.
 export default function Students({
-  t, lang, colors, css, students, setStudents, gradesFor, streamsFor, showToast, showConfirm,
+  t, lang, students, setStudents, gradesFor, streamsFor, showToast, showConfirm,
 }) {
+  const blank = {
+    name: "", level: "junior", grade: DEFAULT_GRADES.junior[0],
+    stream: streamsFor("junior")[0] || "", gender: "Male",
+    admNo: "", dob: "", parent: "", phone: "",
+  };
+
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
   const [filterLevel, setFilterLevel] = useState("all");
-  const blank = { name: "", level: "junior", grade: DEFAULT_GRADES.junior[0], stream: streamsFor("junior")[0] || "", gender: "Male", admNo: "", dob: "", parent: "", phone: "" };
   const [form, setForm] = useState(blank);
+  const [importPreview, setImportPreview] = useState(null);
   const fileRef = useRef();
 
+  const set = (key, val) => setForm(p => ({ ...p, [key]: val }));
+  const q = search.trim().toLowerCase();
   const filtered = students.filter(s =>
     (filterLevel === "all" || s.level === filterLevel) &&
-    (s.name.toLowerCase().includes(search.toLowerCase()) || s.admNo.toLowerCase().includes(search.toLowerCase()))
-  );
+    (s.name.toLowerCase().includes(q) || s.admNo.toLowerCase().includes(q)));
 
   const openAdd = () => { setForm(blank); setEditId(null); setShowForm(true); };
   const openEdit = (s) => { setForm({ ...s }); setEditId(s.id); setShowForm(true); };
@@ -27,18 +59,18 @@ export default function Students({
     if (!form.name || !form.admNo) return;
     if (editId) setStudents(p => p.map(s => s.id === editId ? { ...form, id: editId } : s));
     else setStudents(p => [...p, { ...form, id: uid() }]);
-    setShowForm(false); showToast(t.saved);
+    setShowForm(false);
+    showToast(t.saved);
   };
-  const del = (id) => { showConfirm(t.confirm, () => { setStudents(p => p.filter(s => s.id !== id)); showToast(t.deleted); }, { danger: true }); };
+  const del = (id) => showConfirm(t.confirm, () => {
+    setStudents(p => p.filter(s => s.id !== id));
+    showToast(t.deleted);
+  }, { danger: true });
 
-  const onLevelChange = (level) => {
-    const g = gradesFor(level)[0] || "";
-    const s = streamsFor(level)[0] || "";
-    setForm(p => ({ ...p, level, grade: g, stream: s }));
-  };
-
-  const [importPreview, setImportPreview] = useState(null);
-  // importPreview: { rows: [...], mapped: [...], errors: [...] }
+  // Switching level invalidates the grade/stream picked from the previous one.
+  const onLevelChange = (level) => setForm(p => ({
+    ...p, level, grade: gradesFor(level)[0] || "", stream: streamsFor(level)[0] || "",
+  }));
 
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
@@ -46,17 +78,14 @@ export default function Students({
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const data = new Uint8Array(ev.target.result);
-        const wb = XLSX.read(data, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
+        const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
         if (rows.length === 0) {
           showToast(lang === "ar" ? "الملف فارغ أو لا يحتوي على بيانات." : "File is empty or has no data rows.");
           return;
         }
 
-        // Map rows to student objects, collect errors
+        // Column names vary between offices, so each field accepts aliases.
         const mapped = [];
         const errors = [];
         rows.forEach((r, i) => {
@@ -67,7 +96,7 @@ export default function Students({
           const level = levelRaw.includes("senior") || DEFAULT_GRADES.senior.includes(grade) ? "senior" : "junior";
           const stream = String(r.Stream || r.stream || r["Class Stream"] || streamsFor(level)[0] || "").trim();
           const gender = String(r.Gender || r.gender || r["Sex"] || "Male").trim();
-          const admNo = String(r.AdmNo || r["Adm No"] || r["Admission No"] || r["Admission Number"] || r.admno || `AUTO-${uid().slice(0,5).toUpperCase()}`).trim();
+          const admNo = String(r.AdmNo || r["Adm No"] || r["Admission No"] || r["Admission Number"] || r.admno || `AUTO-${uid().slice(0, 5).toUpperCase()}`).trim();
           mapped.push({
             id: uid(), name, level, grade, stream,
             gender: gender.toLowerCase().startsWith("f") ? "Female" : "Male",
@@ -80,14 +109,12 @@ export default function Students({
 
         setImportPreview({ rows, mapped, errors, fileName: file.name });
       } catch (err) {
-        showToast(lang === "ar" ? "فشل قراءة الملف. تأكد أنه ملف Excel صحيح." : `Failed to read file. Make sure it is a valid Excel file. (${err.message})`);
+        showToast(lang === "ar" ? "فشل قراءة الملف." : `Failed to read file. Make sure it is a valid Excel file. (${err.message})`);
       }
     };
-    reader.onerror = () => {
-      showToast(lang === "ar" ? "خطأ في قراءة الملف." : "Error reading file.");
-    };
+    reader.onerror = () => showToast(lang === "ar" ? "خطأ في قراءة الملف." : "Error reading file.");
     reader.readAsArrayBuffer(file);
-    // Reset input AFTER scheduling the read (not before)
+    // Reset the input AFTER scheduling the read, so re-picking the same file works.
     setTimeout(() => { e.target.value = ""; }, 100);
   };
 
@@ -98,217 +125,290 @@ export default function Students({
     setImportPreview(null);
   };
 
-  // Generate a sample Excel template as a downloadable file
-  const downloadTemplate = () => {
-    const sampleRows = [
+  const downloadTemplate = () => downloadWorkbook(`student-import-template-${nowStamp()}.xlsx`, [{
+    name: "Students",
+    rows: [
       { Name: "Fatima Hassan", AdmNo: "ADM001", Grade: "Grade 7", Stream: "R", Gender: "Female", Level: "Junior", DOB: "2012-03-14", Parent: "Hassan Omar", Phone: "0712345678" },
       { Name: "Yusuf Abdi", AdmNo: "ADM002", Grade: "Grade 10", Stream: "A", Gender: "Male", Level: "Senior", DOB: "2009-05-18", Parent: "Abdi Nur", Phone: "0745678901" },
-    ];
-    downloadWorkbook(`student-import-template-${nowStamp()}.xlsx`, [{ name: "Students", rows: sampleRows }]);
-  };
+    ],
+  }]);
+
+  const levelFilters = [
+    { key: "all", label: t.students.allLevels },
+    { key: "junior", label: t.dashboard.junior },
+    { key: "senior", label: t.dashboard.senior },
+  ];
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <h2 style={{ margin: 0, color: colors.primary }}>{t.students.title}</h2>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input style={{ ...css.input, flex: "1 1 200px", minWidth: 150, width: "auto" }} placeholder={t.students.search} value={search} onChange={e => setSearch(e.target.value)} />
-          <button style={css.btn("ghost")} onClick={() => fileRef.current.click()}>📥 {t.students.importExcel}</button>
-          <button style={{ ...css.btn("ghost") }} onClick={downloadTemplate} title="Download Excel template">📋 Template</button>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display: "none" }} onChange={handleFileSelect} />
-          <button style={css.btn()} onClick={openAdd}>+ {t.students.addStudent}</button>
+    <div className="space-y-4">
+      <PageHeader title={t.students.title}>
+        <div className="relative">
+          <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input
+            className="w-[190px] ps-8"
+            placeholder={t.students.search}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            aria-label={t.students.search}
+          />
         </div>
+        <Button variant="secondary" onClick={() => fileRef.current.click()}>
+          <Upload className="size-4" aria-hidden="true" />
+          {t.students.importExcel}
+        </Button>
+        <Button variant="secondary" onClick={downloadTemplate}>
+          <FileDown className="size-4" aria-hidden="true" />
+          Template
+        </Button>
+        <input
+          ref={fileRef} type="file" className="hidden" onChange={handleFileSelect}
+          accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+        />
+        <Button onClick={openAdd}>
+          <Plus className="size-4" aria-hidden="true" />
+          {t.students.addStudent}
+        </Button>
+      </PageHeader>
+
+      <div role="radiogroup" aria-label={t.students.level} className="flex flex-wrap gap-2">
+        {levelFilters.map(f => (
+          <Button
+            key={f.key}
+            type="button" role="radio" aria-checked={filterLevel === f.key}
+            variant={filterLevel === f.key ? "default" : "secondary"}
+            size="sm"
+            className={cn("rounded-full", filterLevel === "junior" && f.key === "junior" && "bg-[#0c5460] hover:bg-[#0c5460]/90")}
+            onClick={() => setFilterLevel(f.key)}
+          >
+            {f.label}
+          </Button>
+        ))}
+        <span className="ms-auto self-center text-sm text-muted-foreground">
+          {filtered.length} / {students.length}
+        </span>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button style={css.levelPill("all", filterLevel === "all")} onClick={() => setFilterLevel("all")}>{t.students.allLevels}</button>
-        <button style={css.levelPill("junior", filterLevel === "junior")} onClick={() => setFilterLevel("junior")}>{t.dashboard.junior}</button>
-        <button style={css.levelPill("senior", filterLevel === "senior")} onClick={() => setFilterLevel("senior")}>{t.dashboard.senior}</button>
-      </div>
-
-      <div style={css.card}>
-        <p style={{ fontSize: 12, color: colors.muted, margin: "0 0 12px" }}>
-          💡 {t.students.importHint} — <button onClick={downloadTemplate} style={{ background: "none", border: "none", color: colors.primary, cursor: "pointer", fontWeight: 700, padding: 0, textDecoration: "underline", fontSize: 12 }}>Download Template</button>
-        </p>
-        {filtered.length === 0 ? (
-          <p style={{ color: colors.muted, textAlign: "center", padding: "40px 0" }}>{t.students.noStudents}</p>
-        ) : (
-          <table style={css.table}>
-            <thead>
-              <tr>
-                {[t.students.admNo, t.students.name, t.students.level, t.students.grade, t.students.stream, t.students.gender, t.actions].map(h => (
-                  <th key={h} style={css.th}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(s => (
-                <tr key={s.id}>
-                  <td style={css.td}><span style={{ fontWeight: 700, color: colors.primary }}>{s.admNo}</span></td>
-                  <td style={css.td}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 30, height: 30, borderRadius: "50%", background: colors.primary, color: colors.gold, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                        {s.name.charAt(0)}
-                      </div>
-                      {s.name}
-                    </div>
-                  </td>
-                  <td style={css.td}>
-                    <span style={css.badge(s.level === "junior" ? "#0c5460" : colors.primary, s.level === "junior" ? "#bee5eb" : "#e8f0ed")}>
-                      {t.levels[s.level]}
-                    </span>
-                  </td>
-                  <td style={css.td}>{s.grade}</td>
-                  <td style={css.td}><span style={css.badge(colors.primary, "#e8f0ed")}>{s.stream}</span></td>
-                  <td style={css.td}>
-                    <span style={css.badge(s.gender === "Male" ? "#1e40af" : "#9333ea", s.gender === "Male" ? "#dbeafe" : "#f3e8ff")}>
-                      {s.gender === "Male" ? "♂" : "♀"} {lang === "ar" ? (s.gender === "Male" ? "ذكر" : "أنثى") : s.gender}
-                    </span>
-                  </td>
-                  <td style={css.td}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button style={{ ...css.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={() => openEdit(s)}>✏️</button>
-                      <button style={{ ...css.btn("danger"), padding: "4px 10px", fontSize: 12 }} onClick={() => del(s.id)}>🗑</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {showForm && (
-        <div style={css.modal} onClick={e => e.target === e.currentTarget && setShowForm(false)}>
-          <div style={css.modalBox}>
-            <div style={css.modalTitle}>{editId ? t.students.edit : t.students.addStudent}</div>
-            <div style={css.formRow}>
-              <label style={css.label}>{t.students.level}</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" style={{ ...css.levelPill("junior", form.level === "junior"), flex: 1 }} onClick={() => onLevelChange("junior")}>{t.dashboard.junior}</button>
-                <button type="button" style={{ ...css.levelPill("senior", form.level === "senior"), flex: 1 }} onClick={() => onLevelChange("senior")}>{t.dashboard.senior}</button>
-              </div>
-            </div>
-            <div style={css.grid2}>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.name}</label>
-                <input style={css.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-              </div>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.admNo}</label>
-                <input style={css.input} value={form.admNo} onChange={e => setForm(p => ({ ...p, admNo: e.target.value }))} />
-              </div>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.grade}</label>
-                <select style={css.select} value={form.grade} onChange={e => setForm(p => ({ ...p, grade: e.target.value }))}>
-                  {gradesFor(form.level).map(g => <option key={g}>{g}</option>)}
-                </select>
-              </div>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.stream}</label>
-                <select style={css.select} value={form.stream} onChange={e => setForm(p => ({ ...p, stream: e.target.value }))}>
-                  {streamsFor(form.level).length === 0 && <option value="">—</option>}
-                  {streamsFor(form.level).map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.gender}</label>
-                <select style={css.select} value={form.gender} onChange={e => setForm(p => ({ ...p, gender: e.target.value }))}>
-                  <option value="Male">{t.students.male}</option>
-                  <option value="Female">{t.students.female}</option>
-                </select>
-              </div>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.dob}</label>
-                <input type="date" style={css.input} value={form.dob} onChange={e => setForm(p => ({ ...p, dob: e.target.value }))} />
-              </div>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.parent}</label>
-                <input style={css.input} value={form.parent} onChange={e => setForm(p => ({ ...p, parent: e.target.value }))} />
-              </div>
-              <div style={css.formRow}>
-                <label style={css.label}>{t.students.phone}</label>
-                <input type="tel" style={css.input} value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
-              </div>
-            </div>
-            <div style={css.formActions}>
-              <button style={css.btn("ghost")} onClick={() => setShowForm(false)}>{t.students.cancel}</button>
-              <button style={css.btn()} onClick={save}>{t.students.save}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Import Preview Modal ── */}
-      {importPreview && (
-        <div style={css.modal}>
-          <div style={{ ...css.modalBox, maxWidth: 740 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={css.modalTitle}>📥 Import Preview — {importPreview.fileName}</div>
-              <button onClick={() => setImportPreview(null)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: colors.muted }}>×</button>
-            </div>
-
-            <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-              <div style={{ background: "#dcfce7", color: "#166534", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>
-                ✓ {importPreview.mapped.length} students ready to import
-              </div>
-              {importPreview.errors.length > 0 && (
-                <div style={{ background: "#fee2e2", color: "#991b1b", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>
-                  ⚠ {importPreview.errors.length} rows skipped
-                </div>
-              )}
-            </div>
-
-            {importPreview.errors.length > 0 && (
-              <div style={{ background: "#fef9c3", border: "1px solid #fde047", borderRadius: 6, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#854d0e" }}>
-                <strong>Skipped rows:</strong> {importPreview.errors.join(" · ")}
-              </div>
-            )}
-
-            <div style={{ maxHeight: 280, overflowY: "auto", overflowX: "auto", border: `1px solid ${colors.border}`, borderRadius: 8, marginBottom: 16 }}>
-              <table style={css.table}>
-                <thead>
-                  <tr>
-                    {["#", "Name", "Adm No", "Level", "Grade", "Stream", "Gender", "Parent"].map(h => (
-                      <th key={h} style={{ ...css.th, fontSize: 11 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {importPreview.mapped.map((s, i) => (
-                    <tr key={s.id}>
-                      <td style={{ ...css.td, color: colors.muted, fontSize: 12 }}>{i + 1}</td>
-                      <td style={{ ...css.td, fontWeight: 600 }}>{s.name}</td>
-                      <td style={css.td}>{s.admNo}</td>
-                      <td style={css.td}>
-                        <span style={css.badge(s.level === "junior" ? "#0c5460" : colors.primary, s.level === "junior" ? "#bee5eb" : "#e8f0ed")}>
-                          {t.levels[s.level]}
-                        </span>
-                      </td>
-                      <td style={css.td}>{s.grade}</td>
-                      <td style={css.td}><span style={css.badge(colors.primary, "#e8f0ed")}>{s.stream}</span></td>
-                      <td style={css.td}>{s.gender}</td>
-                      <td style={css.td}>{s.parent || "—"}</td>
-                    </tr>
+      <Card>
+        <CardContent className="p-0">
+          <p className="border-b p-3 text-xs text-muted-foreground">
+            {t.students.importHint} —{" "}
+            <button onClick={downloadTemplate} className="font-bold text-primary underline underline-offset-2">
+              Download Template
+            </button>
+          </p>
+          {filtered.length === 0 ? (
+            <p className="py-12 text-center text-muted-foreground">{t.students.noStudents}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {[t.students.admNo, t.students.name, t.students.level, t.students.grade,
+                      t.students.stream, t.students.gender, t.actions]
+                      .map(h => <TableHead key={h} className="whitespace-nowrap">{h}</TableHead>)}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map(s => (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-bold text-primary">{s.admNo}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="size-7">
+                            <AvatarFallback className="bg-primary text-xs font-bold text-gold">
+                              {s.name.charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="whitespace-nowrap">{s.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className={LEVEL_BADGE[s.level]}>{t.levels[s.level]}</Badge>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{s.grade}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="bg-[#e8f0ed] text-primary">{s.stream}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className={s.gender === "Male" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}
+                        >
+                          {s.gender === "Male" ? "♂" : "♀"}{" "}
+                          {lang === "ar" ? (s.gender === "Male" ? "ذكر" : "أنثى") : s.gender}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1.5">
+                          <Button variant="secondary" size="sm" onClick={() => openEdit(s)} aria-label={`${t.students.edit}: ${s.name}`}>
+                            <Pencil className="size-3.5" aria-hidden="true" />
+                          </Button>
+                          <Button variant="destructive" size="sm" onClick={() => del(s.id)} aria-label={`Delete ${s.name}`}>
+                            <Trash2 className="size-3.5" aria-hidden="true" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Add / edit ── */}
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>{editId ? t.students.edit : t.students.addStudent}</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="grid gap-1.5">
+              <Label>{t.students.level}</Label>
+              <LevelToggle t={t} value={form.level} onChange={onLevelChange} />
             </div>
 
-            <div style={{ background: colors.light, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: colors.muted }}>
-              <strong>Expected columns:</strong> Name, AdmNo, Grade, Stream, Gender, Level, DOB, Parent, Phone
-              <br />Column names are flexible — e.g. &quot;Full Name&quot;, &quot;Student Name&quot;, &quot;Class&quot; also work. Download the <button onClick={downloadTemplate} style={{ background: "none", border: "none", color: colors.primary, cursor: "pointer", fontWeight: 700, padding: 0, textDecoration: "underline" }}>template file</button> for the exact format.
-            </div>
-
-            <div style={css.formActions}>
-              <button style={css.btn("ghost")} onClick={() => setImportPreview(null)}>Cancel</button>
-              <button style={css.btn()} onClick={confirmImport} disabled={importPreview.mapped.length === 0}>
-                ✓ Import {importPreview.mapped.length} Students
-              </button>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-name">{t.students.name}</Label>
+                <Input id="st-name" value={form.name} onChange={e => set("name", e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-adm">{t.students.admNo}</Label>
+                <Input id="st-adm" value={form.admNo} onChange={e => set("admNo", e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-grade">{t.students.grade}</Label>
+                <Select value={form.grade} onValueChange={v => set("grade", v)}>
+                  <SelectTrigger id="st-grade" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {gradesFor(form.level).map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-stream">{t.students.stream}</Label>
+                <Select value={form.stream} onValueChange={v => set("stream", v)}>
+                  <SelectTrigger id="st-stream" className="w-full">
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {streamsFor(form.level).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-gender">{t.students.gender}</Label>
+                <Select
+                  items={{ Male: t.students.male, Female: t.students.female }}
+                  value={form.gender}
+                  onValueChange={v => set("gender", v)}
+                >
+                  <SelectTrigger id="st-gender" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Male">{t.students.male}</SelectItem>
+                    <SelectItem value="Female">{t.students.female}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-dob">{t.students.dob}</Label>
+                <Input id="st-dob" type="date" value={form.dob} onChange={e => set("dob", e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-parent">{t.students.parent}</Label>
+                <Input id="st-parent" value={form.parent} onChange={e => set("parent", e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="st-phone">{t.students.phone}</Label>
+                <Input id="st-phone" type="tel" value={form.phone} onChange={e => set("phone", e.target.value)} />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setShowForm(false)}>{t.students.cancel}</Button>
+            <Button onClick={save} disabled={!form.name || !form.admNo}>{t.students.save}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Import preview ── */}
+      <Dialog open={Boolean(importPreview)} onOpenChange={(o) => { if (!o) setImportPreview(null); }}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-[760px]">
+          <DialogHeader>
+            <DialogTitle>Import Preview — {importPreview?.fileName}</DialogTitle>
+            <DialogDescription>
+              Review the rows below before adding them. Nothing is saved until you confirm.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary" className="bg-green-100 py-1 text-green-800">
+              {importPreview?.mapped.length} students ready to import
+            </Badge>
+            {importPreview?.errors.length > 0 && (
+              <Badge variant="secondary" className="bg-red-100 py-1 text-red-800">
+                {importPreview.errors.length} rows skipped
+              </Badge>
+            )}
+          </div>
+
+          {importPreview?.errors.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+              <strong>Skipped rows:</strong> {importPreview.errors.join(" · ")}
+            </div>
+          )}
+
+          <div className="max-h-[280px] overflow-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {["#", "Name", "Adm No", "Level", "Grade", "Stream", "Gender", "Parent"]
+                    .map(h => <TableHead key={h} className="whitespace-nowrap text-[11px]">{h}</TableHead>)}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {importPreview?.mapped.map((s, i) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">{s.name}</TableCell>
+                    <TableCell>{s.admNo}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className={LEVEL_BADGE[s.level]}>{t.levels[s.level]}</Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{s.grade}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="bg-[#e8f0ed] text-primary">{s.stream}</Badge>
+                    </TableCell>
+                    <TableCell>{s.gender}</TableCell>
+                    <TableCell>{s.parent || "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+            <strong>Expected columns:</strong> Name, AdmNo, Grade, Stream, Gender, Level, DOB, Parent, Phone.
+            Column names are flexible — &quot;Full Name&quot;, &quot;Student Name&quot; and &quot;Class&quot; also work.{" "}
+            <button onClick={downloadTemplate} className="font-bold text-primary underline underline-offset-2">
+              Download the template
+            </button>{" "}
+            for the exact format.
+          </p>
+
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setImportPreview(null)}>Cancel</Button>
+            <Button onClick={confirmImport} disabled={!importPreview?.mapped.length}>
+              <Check className="size-4" aria-hidden="true" />
+              Import {importPreview?.mapped.length} Students
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

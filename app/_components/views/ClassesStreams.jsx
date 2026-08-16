@@ -1,46 +1,75 @@
 "use client";
 import { useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { uid } from "../../_lib/storage";
+import LevelToggle from "../LevelToggle";
+import PageHeader from "../PageHeader";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 // Streams-for-a-level card, hoisted to module scope (not declared inside
 // ClassesStreams) so React doesn't remount it — and reset its subtree state —
 // on every render of the parent.
-function LevelBlock({ level, t, colors, css, gradesFor, streams, students, openAdd, openEdit, del }) {
+function LevelBlock({ level, t, gradesFor, streams, students, openAdd, openEdit, del }) {
+  const levelStreams = streams.filter(s => s.level === level);
+
   return (
-    <div style={css.card}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <div>
-          <div style={{ fontWeight: 700, color: colors.primary, fontSize: 16 }}>{t.levels[level]}</div>
-          <div style={{ fontSize: 12, color: colors.muted }}>{t.classes.gradesInLevel}: {gradesFor(level).join(", ")}</div>
+    <Card>
+      <CardHeader className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="min-w-0">
+          <p className="text-base font-bold text-primary">{t.levels[level]}</p>
+          <p className="text-xs text-muted-foreground">
+            {t.classes.gradesInLevel}: {gradesFor(level).join(", ")}
+          </p>
         </div>
-        <button style={css.btn()} onClick={() => openAdd(level)}>+ {t.classes.addStream}</button>
-      </div>
-      <div style={{ fontSize: 12, color: colors.muted, marginBottom: 8 }}>{t.classes.streamsInLevel}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-        {streams.filter(s => s.level === level).length === 0 ? (
-          <p style={{ color: colors.muted, fontSize: 13 }}>{t.classes.noStreams}</p>
-        ) : streams.filter(s => s.level === level).map(s => {
-          const count = students.filter(st => st.level === level && st.stream === s.name).length;
-          return (
-            <div key={s.id} style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "8px 14px",
-              border: `1px solid ${colors.border}`, borderRadius: 8, background: colors.light,
-            }}>
-              <span style={{ fontWeight: 700, color: colors.primary }}>{s.name}</span>
-              <span style={{ fontSize: 11, color: colors.muted }}>({count})</span>
-              <button onClick={() => openEdit(s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13 }}>✏️</button>
-              <button onClick={() => del(s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: colors.danger }}>🗑</button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+        <Button onClick={() => openAdd(level)}>
+          <Plus className="size-4" aria-hidden="true" />
+          {t.classes.addStream}
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <p className="mb-2 text-xs text-muted-foreground">{t.classes.streamsInLevel}</p>
+        {levelStreams.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t.classes.noStreams}</p>
+        ) : (
+          <ul className="flex flex-wrap gap-2.5">
+            {levelStreams.map(s => {
+              const count = students.filter(st => st.level === level && st.stream === s.name).length;
+              return (
+                <li key={s.id} className="flex items-center gap-2 rounded-lg border bg-muted px-3 py-1.5">
+                  <span className="font-bold text-primary">{s.name}</span>
+                  <span className="text-[11px] text-muted-foreground">({count})</span>
+                  <Button
+                    variant="ghost" size="icon" className="size-7"
+                    onClick={() => openEdit(s)} aria-label={`${t.classes.edit} ${s.name}`}
+                  >
+                    <Pencil className="size-3.5" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    variant="ghost" size="icon" className="size-7 text-destructive hover:text-destructive"
+                    onClick={() => del(s)} aria-label={`Delete ${s.name}`}
+                  >
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 // Classes & Streams management view, extracted from App() in index.jsx.
 export default function ClassesStreams({
-  t, lang, colors, css, streams, setStreams, students, setStudents, gradesFor, showToast, showConfirm,
+  t, lang, streams, setStreams, students, setStudents, gradesFor, showToast, showConfirm,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -52,58 +81,79 @@ export default function ClassesStreams({
   const save = () => {
     const name = form.name.trim();
     if (!name) return;
-    const dup = streams.find(s => s.level === form.level && s.name.toLowerCase() === name.toLowerCase() && s.id !== editId);
-    if (dup) { showToast(lang === "ar" ? "هذه الشعبة موجودة بالفعل" : "This stream already exists for this level"); return; }
+    const dup = streams.find(s =>
+      s.level === form.level && s.name.toLowerCase() === name.toLowerCase() && s.id !== editId);
+    if (dup) {
+      showToast(lang === "ar" ? "هذه الشعبة موجودة بالفعل" : "This stream already exists for this level");
+      return;
+    }
     if (editId) {
       const old = streams.find(s => s.id === editId);
       setStreams(p => p.map(s => s.id === editId ? { ...s, name } : s));
+      // Renaming a stream has to follow through to every student assigned to it.
       if (old && old.name !== name) {
-        setStudents(p => p.map(s => (s.level === old.level && s.stream === old.name) ? { ...s, stream: name } : s));
+        setStudents(p => p.map(s =>
+          (s.level === old.level && s.stream === old.name) ? { ...s, stream: name } : s));
       }
     } else {
       setStreams(p => [...p, { id: uid(), name, level: form.level }]);
     }
-    setShowForm(false); showToast(t.saved);
+    setShowForm(false);
+    showToast(t.saved);
   };
 
   const del = (s) => {
     const inUse = students.some(st => st.level === s.level && st.stream === s.name);
     if (inUse) { showToast(t.classes.inUseWarning); return; }
-    showConfirm(t.confirm, () => { setStreams(p => p.filter(x => x.id !== s.id)); showToast(t.deleted); }, { danger: true });
+    showConfirm(t.confirm, () => {
+      setStreams(p => p.filter(x => x.id !== s.id));
+      showToast(t.deleted);
+    }, { danger: true });
   };
 
   return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, color: colors.primary }}>{t.classes.title}</h2>
-        <p style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>{t.classes.subtitle}</p>
-      </div>
+    <div className="space-y-4">
+      <PageHeader title={t.classes.title} description={t.classes.subtitle} />
 
-      <LevelBlock level="junior" t={t} colors={colors} css={css} gradesFor={gradesFor} streams={streams} students={students} openAdd={openAdd} openEdit={openEdit} del={del} />
-      <LevelBlock level="senior" t={t} colors={colors} css={css} gradesFor={gradesFor} streams={streams} students={students} openAdd={openAdd} openEdit={openEdit} del={del} />
+      {["junior", "senior"].map(level => (
+        <LevelBlock
+          key={level} level={level} t={t} gradesFor={gradesFor} streams={streams}
+          students={students} openAdd={openAdd} openEdit={openEdit} del={del}
+        />
+      ))}
 
-      {showForm && (
-        <div style={css.modal} onClick={e => e.target === e.currentTarget && setShowForm(false)}>
-          <div style={css.modalBox}>
-            <div style={css.modalTitle}>{editId ? t.classes.edit : t.classes.addStream}</div>
-            <div style={css.formRow}>
-              <label style={css.label}>{t.classes.level}</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" disabled={!!editId} style={{ ...css.levelPill("junior", form.level === "junior"), flex: 1, opacity: editId ? .6 : 1 }} onClick={() => !editId && setForm(p => ({ ...p, level: "junior" }))}>{t.dashboard.junior}</button>
-                <button type="button" disabled={!!editId} style={{ ...css.levelPill("senior", form.level === "senior"), flex: 1, opacity: editId ? .6 : 1 }} onClick={() => !editId && setForm(p => ({ ...p, level: "senior" }))}>{t.dashboard.senior}</button>
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>{editId ? t.classes.edit : t.classes.addStream}</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="grid gap-1.5">
+              <Label>{t.classes.level}</Label>
+              {/* Level is fixed once created — moving a stream between levels would
+                  orphan every student already assigned to it. */}
+              <div className={editId ? "pointer-events-none opacity-60" : undefined}>
+                <LevelToggle t={t} value={form.level} onChange={lv => setForm(p => ({ ...p, level: lv }))} />
               </div>
             </div>
-            <div style={css.formRow}>
-              <label style={css.label}>{t.classes.streamName}</label>
-              <input style={css.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. A, R, North…" />
-            </div>
-            <div style={css.formActions}>
-              <button style={css.btn("ghost")} onClick={() => setShowForm(false)}>{t.classes.cancel}</button>
-              <button style={css.btn()} onClick={save}>{t.classes.save}</button>
+            <div className="grid gap-1.5">
+              <Label htmlFor="stream-name">{t.classes.streamName}</Label>
+              <Input
+                id="stream-name"
+                value={form.name}
+                onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                placeholder="e.g. A, R, North…"
+              />
             </div>
           </div>
-        </div>
-      )}
+
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setShowForm(false)}>{t.classes.cancel}</Button>
+            <Button onClick={save} disabled={!form.name.trim()}>{t.classes.save}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,28 +1,146 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ── Madrasa brand ───────────────────────────────────────────────────────────
+   The school identity is dark green + gold on cream. Rather than restyling
+   each shadcn component, the brand is mapped onto shadcn's semantic tokens
+   below, so every component (Button, Card, Table, Sidebar, Dialog, …) inherits
+   it automatically. `--gold` is exposed separately because shadcn's `--accent`
+   is a *subtle hover* colour — using saturated gold there would make every
+   menu hover shout. Gold is applied deliberately, via `bg-gold`/`text-gold`.
+
+   Light-only by design: report forms are printed on paper, so there is no
+   `.dark` palette and the `dark:` classes inside shadcn components never
+   activate.
+   ────────────────────────────────────────────────────────────────────────── */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Brand extras, usable as bg-gold / text-gold / border-sand / bg-cream. */
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --color-cream: var(--cream);
+  --color-sand: var(--sand);
+
+  /* CBC performance bands — shared by report badges and charts. */
+  --color-band-exceeding: var(--band-exceeding);
+  --color-band-meeting: var(--band-meeting);
+  --color-band-approaching: var(--band-approaching);
+  --color-band-below: var(--band-below);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* Brand primitives */
+  --gold: #c9a84c;
+  --gold-foreground: #1c3d2e;
+  --cream: #f5f0e8;
+  --sand: #e2d9c8;
+
+  /* Surfaces: cream page, white cards — matches the printed report stock. */
+  --background: #f5f0e8;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+
+  --primary: #1c3d2e;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f5f0e8;
+  --secondary-foreground: #1c3d2e;
+
+  --muted: #f5f0e8;
+  --muted-foreground: #6b7280;
+
+  /* Deliberately soft: this is shadcn's hover/active wash, not the gold. */
+  --accent: #efe7d8;
+  --accent-foreground: #1c3d2e;
+
+  --destructive: #dc2626;
+
+  --border: #e2d9c8;
+  --input: #e2d9c8;
+  --ring: #c9a84c;
+
+  /* Charts lead with the brand, then step through supporting tones. */
+  --chart-1: #1c3d2e;
+  --chart-2: #c9a84c;
+  --chart-3: #0c5460;
+  --chart-4: #6b8f7a;
+  --chart-5: #a3874a;
+
+  --radius: 0.625rem;
+
+  /* Sidebar is the dark green slab; gold marks the active screen. */
+  --sidebar: #1c3d2e;
+  --sidebar-foreground: rgb(255 255 255 / 0.75);
+  --sidebar-primary: #c9a84c;
+  --sidebar-primary-foreground: #1c3d2e;
+  --sidebar-accent: rgb(201 168 76 / 0.12);
+  --sidebar-accent-foreground: #c9a84c;
+  --sidebar-border: rgb(255 255 255 / 0.1);
+  --sidebar-ring: #c9a84c;
+
+  --band-exceeding: #166534;
+  --band-meeting: #0c5460;
+  --band-approaching: #854d0e;
+  --band-below: #991b1b;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }
 
 /* The school app manages its own scrolling inside a 100dvh shell, so the page
@@ -43,13 +161,29 @@ body {
   }
 }
 
-/* Print: drop the chrome (drawer, top bar, toasts) so report cards and class
-   lists print as clean documents. */
+/* ── Print ───────────────────────────────────────────────────────────────────
+   Report forms and class lists must come off the printer as clean documents:
+   no sidebar, no top bar, no toasts, white stock, and badge colours preserved.
+   `.print-hide` is the opt-out any chrome can carry.
+   ────────────────────────────────────────────────────────────────────────── */
 @media print {
   html,
   body {
     overflow: visible;
     height: auto;
     background: #fff;
+  }
+  .print-hide,
+  [data-slot="sidebar-wrapper"] > [data-slot="sidebar"],
+  [data-slot="sidebar-trigger"] {
+    display: none !important;
+  }
+  .print-area {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

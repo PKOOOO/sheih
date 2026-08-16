@@ -1,49 +1,69 @@
-// Confirmation dialog modal, extracted from index.jsx.
+"use client";
+import { CircleHelp, TriangleAlert } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
+
+// Confirmation dialog. Callers pass { message, subMessage?, onConfirm, danger? }
+// through `showConfirm` in SchoolApp; `danger` defaults to true because almost
+// every caller is a delete. Built on shadcn AlertDialog so focus trapping,
+// Escape-to-close and scroll locking come from the primitive.
 export default function ConfirmDialog({ dialog, onCancel }) {
-  if (!dialog) return null;
-  const danger = dialog.danger !== false;
+  const open = Boolean(dialog);
+  const danger = dialog?.danger !== false;
+  const Icon = danger ? TriangleAlert : CircleHelp;
+
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,.55)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 10000, padding: 20, fontFamily: "'Segoe UI', Arial, sans-serif",
-    }}>
-      <div style={{
-        background: "#fff", borderRadius: 12, maxWidth: 420, width: "100%",
-        boxShadow: "0 12px 40px rgba(0,0,0,.3)", overflow: "hidden",
-      }}>
-        <div style={{ padding: "20px 24px 0", display: "flex", alignItems: "flex-start", gap: 14 }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
-            background: danger ? "#fee2e2" : "#e0f2fe",
-            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-          }}>
-            {danger ? "⚠️" : "❓"}
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: "#111", marginBottom: 6 }}>
-              {dialog.message}
+    <AlertDialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+      <AlertDialogContent className="max-w-[420px]">
+        <AlertDialogHeader>
+          <div className="flex items-start gap-3.5">
+            <span
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-full",
+                danger ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+              )}
+            >
+              <Icon className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 space-y-1.5 text-start">
+              <AlertDialogTitle className="text-base leading-snug">
+                {dialog?.message}
+              </AlertDialogTitle>
+              {dialog?.subMessage ? (
+                <AlertDialogDescription className="leading-relaxed">
+                  {dialog.subMessage}
+                </AlertDialogDescription>
+              ) : (
+                // Radix warns when a dialog has no description; keep one for a11y.
+                <AlertDialogDescription className="sr-only">
+                  Please confirm this action.
+                </AlertDialogDescription>
+              )}
             </div>
-            {dialog.subMessage && (
-              <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>{dialog.subMessage}</div>
-            )}
           </div>
-        </div>
-        <div style={{ display: "flex", gap: 10, padding: "20px 24px", justifyContent: "flex-end" }}>
-          <button
-            onClick={onCancel}
-            style={{ padding: "8px 18px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", color: "#374151" }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => { dialog.onConfirm(); onCancel(); }}
-            style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: danger ? "#dc2626" : "#1c3d2e", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={cn(
+              danger &&
+                "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/30",
+            )}
+            onClick={() => dialog?.onConfirm?.()}
           >
             {danger ? "Delete" : "Confirm"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

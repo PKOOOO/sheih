@@ -1,77 +1,107 @@
-// Printable student report card, extracted from App() in index.jsx.
-// Shared by the Reports and ParentPortal views.
 import { LOGO_SRC } from "../_lib/logo";
 import { SCHOOL_NAMES } from "../_lib/i18n";
+import CbcBadge from "./CbcBadge";
 
-export default function ReportCard({ student, exam, avg, overall, t, lang, colors, css, subjects, results, cbe }) {
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+
+// Printable student report card, extracted from App() in index.jsx.
+// Shared by the Reports and ParentPortal views. This is the document madam
+// signs off on, so the layout is tuned for A4 print as much as for screen.
+export default function ReportCard({ student, exam, avg, overall, t, lang, subjects, results, cbe }) {
+  const studentSubjects = subjects.filter(sub => (sub.levels || []).includes(student.level));
+  const pctOf = (score) => Math.round((score / exam.maxScore) * 100);
+
+  const facts = [
+    ["Student Name", student.name],
+    ["Admission No.", student.admNo],
+    ["School Level", t.levels[student.level]],
+    ["Grade / Stream", `${student.grade}${student.stream}`],
+    ["Gender", student.gender],
+    ["Parent/Guardian", student.parent || "—"],
+  ];
+
   return (
-    <div style={css.card}>
-      <div style={{ textAlign: "center", borderBottom: `3px solid ${colors.gold}`, paddingBottom: 16, marginBottom: 20 }}>
-        <img src={LOGO_SRC} alt="School Logo" style={{ width: 70, height: 70, objectFit: "contain", marginBottom: 10 }} />
-        <div style={{ fontSize: 17, fontWeight: 800, color: colors.primary, lineHeight: 1.4 }}>
-          {SCHOOL_NAMES[student.level][lang]}
-        </div>
-        <div style={{ color: colors.muted, fontSize: 13, marginTop: 6 }}>Academic Results Report</div>
-        <div style={{ marginTop: 8, display: "inline-block", background: colors.primary, color: colors.gold, padding: "4px 20px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>
-          {exam.examName} · {exam.term} {exam.year}
-        </div>
-      </div>
+    <Card>
+      <CardContent className="p-4 md:p-6">
+        <header className="mb-5 border-b-[3px] border-gold pb-4 text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO_SRC} alt="School logo" className="mx-auto mb-2.5 size-16 object-contain" />
+          <p className="text-base font-extrabold leading-snug text-primary md:text-[17px]">
+            {SCHOOL_NAMES[student.level][lang]}
+          </p>
+          <p className="mt-1.5 text-[13px] font-bold tracking-wide text-muted-foreground">
+            MADRASA REPORT FORM
+          </p>
+          <p className="mt-2 inline-block rounded-full bg-primary px-5 py-1 text-[13px] font-bold text-gold">
+            {exam.examName} · {exam.term} {exam.year}
+          </p>
+        </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 20, background: colors.light, padding: 16, borderRadius: 8 }}>
-        {[
-          ["Student Name", student.name],
-          ["Admission No.", student.admNo],
-          ["School Level", t.levels[student.level]],
-          ["Grade / Stream", `${student.grade}${student.stream}`],
-          ["Gender", student.gender],
-          ["Parent/Guardian", student.parent || "—"],
-        ].map(([k, v]) => (
-          <div key={k} style={{ display: "flex", gap: 8 }}>
-            <span style={{ color: colors.muted, fontSize: 13, minWidth: 130 }}>{k}:</span>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>{v}</span>
-          </div>
-        ))}
-      </div>
+        <dl className="mb-5 grid gap-2.5 rounded-lg bg-muted p-4 sm:grid-cols-2">
+          {facts.map(([k, v]) => (
+            <div key={k} className="flex gap-2 text-[13px]">
+              <dt className="min-w-[120px] shrink-0 text-muted-foreground">{k}:</dt>
+              <dd className="font-semibold">{v}</dd>
+            </div>
+          ))}
+        </dl>
 
-      <table style={css.table}>
-        <thead>
-          <tr>
-            {["Subject", "Code", "Score", `/ ${exam.maxScore}`, "%", "CBC Level"].map(h => (
-              <th key={h} style={css.th}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {subjects.filter(sub => (sub.levels || []).includes(student.level)).map(sub => {
-            const r = results.find(r => r.examId === exam.id && r.studentId === student.id && r.subjectId === sub.id);
-            const cbeCell = r ? cbe(r.score, exam.maxScore) : null;
-            const pct = r ? Math.round((r.score / exam.maxScore) * 100) : null;
-            return (
-              <tr key={sub.id}>
-                <td style={css.td}>{sub.name}</td>
-                <td style={css.td}><span style={css.badge("#64748b", "#f1f5f9")}>{sub.code}</span></td>
-                <td style={css.td}>{r ? <strong>{r.score}</strong> : "—"}</td>
-                <td style={css.td}>{r ? exam.maxScore : "—"}</td>
-                <td style={css.td}>{pct !== null ? `${pct}%` : "—"}</td>
-                <td style={css.td}>{cbeCell ? <span style={css.badge(cbeCell.color, cbeCell.bg)}>{cbeCell.code} — {cbeCell.label}</span> : <span style={{ color: colors.muted }}>—</span>}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      {overall && (
-        <div style={{ marginTop: 20, padding: 16, background: overall.bg, borderRadius: 8, border: `2px solid ${overall.color}`, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontWeight: 700, color: overall.color, fontSize: 16 }}>Overall Performance</div>
-            <div style={{ color: overall.color, fontSize: 14 }}>Average Score: {avg} / {exam.maxScore} ({Math.round((avg / exam.maxScore) * 100)}%)</div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: overall.color }}>{overall.code}</div>
-            <div style={{ fontSize: 13, color: overall.color }}>{overall.label}</div>
-          </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Subject</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead className="text-center">Score</TableHead>
+                <TableHead className="text-center">/ {exam.maxScore}</TableHead>
+                <TableHead className="text-center">%</TableHead>
+                <TableHead>CBC Level</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {studentSubjects.map(sub => {
+                const r = results.find(x => x.examId === exam.id && x.studentId === student.id && x.subjectId === sub.id);
+                const level = r ? cbe(r.score, exam.maxScore) : null;
+                return (
+                  <TableRow key={sub.id}>
+                    <TableCell className="font-medium">{sub.name}</TableCell>
+                    <TableCell>
+                      <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-bold text-muted-foreground">
+                        {sub.code}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center font-bold">{r ? r.score : "—"}</TableCell>
+                    <TableCell className="text-center text-muted-foreground">{r ? exam.maxScore : "—"}</TableCell>
+                    <TableCell className="text-center">{r ? `${pctOf(r.score)}%` : "—"}</TableCell>
+                    <TableCell><CbcBadge level={level} showLabel /></TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
-      )}
-    </div>
+
+        {overall && (
+          <div
+            className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 p-4"
+            style={{ backgroundColor: overall.bg, borderColor: overall.color }}
+          >
+            <div style={{ color: overall.color }}>
+              <p className="text-base font-bold">Overall Performance</p>
+              <p className="text-sm">
+                Average Score: {avg} / {exam.maxScore} ({pctOf(avg)}%)
+              </p>
+            </div>
+            <div className="text-center" style={{ color: overall.color }}>
+              <p className="text-3xl font-extrabold leading-none">{overall.code}</p>
+              <p className="mt-1 text-[13px]">{overall.label}</p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

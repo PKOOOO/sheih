@@ -1,19 +1,32 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast as sonnerToast } from "sonner";
+import {
+  BookOpen, ClipboardList, Database, FileSpreadsheet, FileText, GraduationCap,
+  LayoutGrid, LogOut, ScrollText, Settings, ShieldCheck, Tags, Users as UsersIcon,
+} from "lucide-react";
 import { LOGO_SRC } from "../_lib/logo";
 import { T } from "../_lib/i18n";
 import { DEFAULT_CBE_GRADES, getCBELevel } from "../_lib/grading";
 import { DEFAULT_GRADES } from "../_lib/schoolStructure";
 import { downloadJSON, nowStamp } from "../_lib/storage";
-import { colors, makeCss } from "../_lib/theme";
-import { useIsMobile } from "../_lib/useIsMobile";
 import { INITIAL_STREAMS, seedUsers } from "../_lib/seed";
 import {
   apiBootstrap, apiCreate, apiUpdate, apiDelete, apiSaveSettings, diffCollection,
   apiLogout, apiMe,
 } from "../../lib/api-client";
 
-import Toast from "./Toast";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
+  SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
+  SidebarProvider, SidebarTrigger, useSidebar,
+} from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
+
 import ConfirmDialog from "./ConfirmDialog";
 import LangSwitch from "./LangSwitch";
 
@@ -32,6 +45,70 @@ import DataBackup from "./views/DataBackup";
 import ClassLists from "./views/ClassLists";
 import GradeSettings from "./views/GradeSettings";
 
+const ROLE_BADGE = {
+  admin: "bg-red-100 text-red-900",
+  registrar: "bg-blue-100 text-blue-900",
+  teacher: "bg-green-100 text-green-900",
+  examOfficer: "bg-amber-100 text-amber-900",
+  viewer: "bg-neutral-100 text-neutral-700",
+  parent: "bg-purple-100 text-purple-900",
+};
+
+// The nav rail. Split out from SchoolApp because `useSidebar` may only be
+// called *inside* SidebarProvider — this is also what lets a tap on a menu
+// item close the mobile Sheet.
+function AppSidebar({ navItems, activePage, onNavigate, lang, setLang, t, dir }) {
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  const go = (key) => {
+    onNavigate(key);
+    if (isMobile) setOpenMobile(false);
+  };
+
+  return (
+    <Sidebar side={dir === "rtl" ? "right" : "left"} dir={dir} className="print-hide">
+      <SidebarHeader className="border-b border-sidebar-border p-4">
+        <div className="flex items-center gap-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={LOGO_SRC}
+            alt="School logo"
+            className="size-10 shrink-0 rounded-md bg-white object-contain p-0.5"
+          />
+        </div>
+      </SidebarHeader>
+
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {navItems.map(({ key, Icon, label }) => (
+                <SidebarMenuItem key={key}>
+                  <SidebarMenuButton
+                    isActive={activePage === key}
+                    onClick={() => go(key)}
+                    tooltip={label}
+                    // Roomier tap target on touch screens.
+                    className="h-10 md:h-8"
+                  >
+                    <Icon aria-hidden="true" />
+                    <span>{label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+
+      <SidebarFooter className="border-t border-sidebar-border p-4">
+        <p className="mb-1.5 text-[11px] text-sidebar-foreground/50">Language / اللغة</p>
+        <LangSwitch lang={lang} setLang={setLang} onSidebar />
+      </SidebarFooter>
+    </Sidebar>
+  );
+}
+
 // De-nested top-level App component, extracted from index.jsx. Owns all
 // state/effects and renders the currently active view, passing each view
 // its data and handlers as explicit props.
@@ -41,11 +118,9 @@ export default function SchoolApp() {
   const dir = t.dir;
 
   const [page, setPage] = useState("dashboard");
-  const isMobile = useIsMobile();
-  // Sidebar is a permanent column on desktop and an off-canvas drawer on mobile.
-  const [navOpen, setNavOpen] = useState(false);
-  const [toast, setToast] = useState(null);
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+  // Sidebar is a permanent column on desktop and a Sheet drawer on mobile —
+  // both handled by shadcn's SidebarProvider, so no open-state lives here.
+  const showToast = (msg) => sonnerToast.success(msg);
 
   // ── Custom confirm dialog (replaces window.confirm which is blocked in iframes) ──
   const [confirmDialog, setConfirmDialog] = useState(null);
@@ -247,46 +322,42 @@ export default function SchoolApp() {
 
   const navItemsFor = (role) => {
     const all = [
-      { key: "dashboard",    icon: "⊞",  label: t.nav.dashboard,     roles: ["admin","registrar","teacher","examOfficer","viewer"] },
-      { key: "students",     icon: "👥",  label: t.nav.students,      roles: ["admin","registrar"] },
-      { key: "classlists",   icon: "📋",  label: t.nav.classlists,    roles: ["admin","registrar","teacher","examOfficer"] },
-      { key: "teachers",     icon: "🎓",  label: t.nav.teachers,      roles: ["admin","registrar"] },
-      { key: "subjects",     icon: "📚",  label: t.nav.subjects,      roles: ["admin","registrar"] },
-      { key: "classes",      icon: "🏷",  label: t.nav.classes,       roles: ["admin","registrar"] },
-      { key: "gradeSettings",icon: "⚙",  label: t.nav.gradeSettings, roles: ["admin"] },
-      { key: "exams",        icon: "📝",  label: t.nav.exams,         roles: ["admin","examOfficer"] },
-      { key: "results",      icon: "📊",  label: t.nav.results,       roles: ["admin","teacher","examOfficer"] },
-      { key: "reports",      icon: "📄",  label: t.nav.reports,       roles: ["admin","registrar","teacher","examOfficer","viewer"] },
-      { key: "users",        icon: "🔐",  label: t.nav.users,         roles: ["admin"] },
-      { key: "backup",       icon: "💾",  label: t.nav.backup,        roles: ["admin"] },
-      { key: "myResults",    icon: "📑",  label: t.nav.myResults,     roles: ["parent"] },
+      { key: "dashboard",    Icon: LayoutGrid,      label: t.nav.dashboard,     roles: ["admin","registrar","teacher","examOfficer","viewer"] },
+      { key: "students",     Icon: UsersIcon,       label: t.nav.students,      roles: ["admin","registrar"] },
+      { key: "classlists",   Icon: ClipboardList,   label: t.nav.classlists,    roles: ["admin","registrar","teacher","examOfficer"] },
+      { key: "teachers",     Icon: GraduationCap,   label: t.nav.teachers,      roles: ["admin","registrar"] },
+      { key: "subjects",     Icon: BookOpen,        label: t.nav.subjects,      roles: ["admin","registrar"] },
+      { key: "classes",      Icon: Tags,            label: t.nav.classes,       roles: ["admin","registrar"] },
+      { key: "gradeSettings",Icon: Settings,        label: t.nav.gradeSettings, roles: ["admin"] },
+      { key: "exams",        Icon: FileText,        label: t.nav.exams,         roles: ["admin","examOfficer"] },
+      { key: "results",      Icon: FileSpreadsheet, label: t.nav.results,       roles: ["admin","teacher","examOfficer"] },
+      { key: "reports",      Icon: ScrollText,      label: t.nav.reports,       roles: ["admin","registrar","teacher","examOfficer","viewer"] },
+      { key: "users",        Icon: ShieldCheck,     label: t.nav.users,         roles: ["admin"] },
+      { key: "backup",       Icon: Database,        label: t.nav.backup,        roles: ["admin"] },
+      { key: "myResults",    Icon: ScrollText,      label: t.nav.myResults,     roles: ["parent"] },
     ];
     return all.filter(item => item.roles.includes(role));
   };
 
-  const css = makeCss(dir, isMobile, navOpen);
-
-  // Navigating always dismisses the mobile drawer.
-  const goToPage = (key) => { setPage(key); setNavOpen(false); };
 
   const splash = (content) => (
-    <div style={{
-      minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", gap: 14, background: colors.light,
-      fontFamily: "'Segoe UI', Arial, sans-serif", color: colors.primary, padding: 20, textAlign: "center",
-    }}>
-      <img src={LOGO_SRC} alt="Logo" style={{ width: 64, height: 64, objectFit: "contain" }} />
+    <div
+      dir={dir}
+      className="flex min-h-[100dvh] flex-col items-center justify-center gap-3.5 bg-background p-5 text-center text-primary"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_SRC} alt="School logo" className="size-16 object-contain" />
       {content}
     </div>
   );
 
   // 1. Session check → 2. login → 3. database bootstrap → 4. the app.
-  if (!authChecked) return splash(<div style={{ fontWeight: 600 }}>Loading…</div>);
+  if (!authChecked) return splash(<p className="font-semibold">Loading…</p>);
 
   if (!currentUser) {
     return (
       <LoginScreen
-        t={t} dir={dir} lang={lang} setLang={setLang} colors={colors} css={css}
+        t={t} dir={dir} lang={lang} setLang={setLang}
         setCurrentUser={setCurrentUser} setPage={setPage}
       />
     );
@@ -295,30 +366,30 @@ export default function SchoolApp() {
   if (!dataLoaded) {
     return splash(loadError ? (
       <>
-        <div style={{ fontWeight: 700 }}>Could not reach the database</div>
-        <div style={{ fontSize: 13, color: colors.muted, maxWidth: 380 }}>{loadError}</div>
-        <button style={css.btn()} onClick={() => window.location.reload()}>Retry</button>
+        <p className="font-bold">Could not reach the database</p>
+        <p className="max-w-[380px] text-sm text-muted-foreground">{loadError}</p>
+        <Button onClick={() => window.location.reload()}>Retry</Button>
       </>
     ) : (
-      <div style={{ fontWeight: 600 }}>Loading…</div>
+      <p className="font-semibold">Loading…</p>
     ));
   }
 
   const navItems = navItemsFor(currentUser.role);
   const pageMap = {
-    dashboard: <Dashboard t={t} lang={lang} colors={colors} css={css} students={students} teachers={teachers} subjects={subjects} exams={exams} results={results} cbe={cbe} streamsFor={streamsFor} setPage={setPage} />,
-    students: <Students t={t} lang={lang} colors={colors} css={css} students={students} setStudents={setStudents} gradesFor={gradesFor} streamsFor={streamsFor} showToast={showToast} showConfirm={showConfirm} />,
-    teachers: <Teachers t={t} colors={colors} css={css} teachers={teachers} setTeachers={setTeachers} subjects={subjects} streamsFor={streamsFor} showToast={showToast} showConfirm={showConfirm} />,
-    subjects: <Subjects t={t} colors={colors} css={css} subjects={subjects} setSubjects={setSubjects} showToast={showToast} showConfirm={showConfirm} />,
-    classes: <ClassesStreams t={t} lang={lang} colors={colors} css={css} streams={streams} setStreams={setStreams} students={students} setStudents={setStudents} gradesFor={gradesFor} showToast={showToast} showConfirm={showConfirm} />,
-    exams: <Exams t={t} colors={colors} css={css} exams={exams} setExams={setExams} gradesFor={gradesFor} showToast={showToast} showConfirm={showConfirm} />,
-    results: <Results t={t} colors={colors} css={css} exams={exams} results={results} setResults={setResults} students={students} subjects={subjects} gradesFor={gradesFor} streamsFor={streamsFor} cbe={cbe} showToast={showToast} showConfirm={showConfirm} />,
-    reports: <Reports t={t} lang={lang} colors={colors} css={css} students={students} exams={exams} subjects={subjects} results={results} gradesFor={gradesFor} cbe={cbe} showToast={showToast} />,
-    users: <Users t={t} lang={lang} colors={colors} css={css} users={users} setUsers={setUsers} students={students} teachers={teachers} showToast={showToast} showConfirm={showConfirm} />,
-    myResults: <ParentPortal t={t} lang={lang} colors={colors} css={css} students={students} subjects={subjects} exams={exams} results={results} cbe={cbe} currentUser={currentUser} showToast={showToast} />,
-    backup: <DataBackup t={t} lang={lang} colors={colors} css={css} students={students} teachers={teachers} subjects={subjects} exams={exams} results={results} users={users} cbe={cbe} saveStatus={saveStatus} lastSavedAt={lastSavedAt} manualBackupDownload={manualBackupDownload} restoreFromBackupFile={restoreFromBackupFile} resetAllData={resetAllData} showConfirm={showConfirm} />,
-    classlists: <ClassLists t={t} lang={lang} colors={colors} css={css} students={students} exams={exams} results={results} gradesFor={gradesFor} streamsFor={streamsFor} cbe={cbe} />,
-    gradeSettings: <GradeSettings t={t} colors={colors} css={css} cbeGrades={cbeGrades} setCbeGrades={setCbeGrades} extraGrades={extraGrades} setExtraGrades={setExtraGrades} gradesForLevel={gradesForLevel} students={students} showToast={showToast} showConfirm={showConfirm} />,
+    dashboard: <Dashboard t={t} lang={lang} students={students} teachers={teachers} subjects={subjects} exams={exams} results={results} cbe={cbe} streamsFor={streamsFor} setPage={setPage} />,
+    students: <Students t={t} lang={lang} students={students} setStudents={setStudents} gradesFor={gradesFor} streamsFor={streamsFor} showToast={showToast} showConfirm={showConfirm} />,
+    teachers: <Teachers t={t} teachers={teachers} setTeachers={setTeachers} subjects={subjects} streamsFor={streamsFor} showToast={showToast} showConfirm={showConfirm} />,
+    subjects: <Subjects t={t} subjects={subjects} setSubjects={setSubjects} showToast={showToast} showConfirm={showConfirm} />,
+    classes: <ClassesStreams t={t} lang={lang} streams={streams} setStreams={setStreams} students={students} setStudents={setStudents} gradesFor={gradesFor} showToast={showToast} showConfirm={showConfirm} />,
+    exams: <Exams t={t} exams={exams} setExams={setExams} gradesFor={gradesFor} showToast={showToast} showConfirm={showConfirm} />,
+    results: <Results t={t} exams={exams} results={results} setResults={setResults} students={students} subjects={subjects} gradesFor={gradesFor} streamsFor={streamsFor} cbe={cbe} showToast={showToast} showConfirm={showConfirm} />,
+    reports: <Reports t={t} lang={lang} students={students} exams={exams} subjects={subjects} results={results} gradesFor={gradesFor} streamsFor={streamsFor} cbe={cbe} showToast={showToast} />,
+    users: <Users t={t} lang={lang} users={users} setUsers={setUsers} students={students} teachers={teachers} showToast={showToast} showConfirm={showConfirm} />,
+    myResults: <ParentPortal t={t} lang={lang} students={students} subjects={subjects} exams={exams} results={results} cbe={cbe} currentUser={currentUser} showToast={showToast} />,
+    backup: <DataBackup t={t} lang={lang} students={students} teachers={teachers} subjects={subjects} exams={exams} results={results} users={users} cbe={cbe} saveStatus={saveStatus} lastSavedAt={lastSavedAt} manualBackupDownload={manualBackupDownload} restoreFromBackupFile={restoreFromBackupFile} resetAllData={resetAllData} showConfirm={showConfirm} />,
+    classlists: <ClassLists t={t} lang={lang} students={students} exams={exams} results={results} gradesFor={gradesFor} streamsFor={streamsFor} cbe={cbe} />,
+    gradeSettings: <GradeSettings t={t} cbeGrades={cbeGrades} setCbeGrades={setCbeGrades} extraGrades={extraGrades} setExtraGrades={setExtraGrades} gradesForLevel={gradesForLevel} students={students} showToast={showToast} showConfirm={showConfirm} />,
   };
   const activePage = navItems.find(n => n.key === page) ? page : navItems[0]?.key;
 
@@ -328,105 +399,96 @@ export default function SchoolApp() {
     setPage("dashboard");
   };
 
-  const roleColorsTop = {
-    admin: ["#7f1d1d", "#fee2e2"], registrar: ["#1e3a8a", "#dbeafe"], teacher: ["#14532d", "#dcfce7"],
-    examOfficer: ["#854d0e", "#fef9c3"], viewer: ["#374151", "#f3f4f6"], parent: ["#581c87", "#f3e8ff"],
-  };
-  const [rc, rbg] = roleColorsTop[currentUser.role] || roleColorsTop.viewer;
+  const activeItem = navItems.find(n => n.key === activePage);
 
   return (
-    <div style={css.app}>
-      {isMobile && <div style={css.sidebarBackdrop} onClick={() => setNavOpen(false)} aria-hidden="true" />}
-      <div style={css.sidebar}>
-        <div style={css.sidebarTop}>
-          <img src={LOGO_SRC} alt="Logo" style={css.sidebarLogo} />
-          <div>
-            <p style={css.sidebarTitle}>{lang === "ar" ? "مدارس الشيخ خليفة بن زايد آل نهيان" : "Sheikh Khalifa Bin Zayed Al Nahyan Schools"}</p>
-            <p style={css.sidebarSub}>{t.appSubtitle}</p>
-          </div>
-        </div>
-        <nav style={css.navScroll}>
-          {navItems.map(item => (
-            <div key={item.key} style={css.navItem(activePage === item.key)} onClick={() => goToPage(item.key)}>
-              <span style={{ fontSize: 16 }}>{item.icon}</span>
-              <span>{item.label}</span>
-            </div>
-          ))}
-        </nav>
-        <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,.1)" }}>
-          <div style={{ color: "rgba(255,255,255,.4)", fontSize: 11, marginBottom: 8 }}>Language / اللغة</div>
-          <LangSwitch lang={lang} setLang={setLang} colors={colors} />
-        </div>
-      </div>
+    <SidebarProvider dir={dir} className="h-[100dvh] min-h-0 overflow-hidden">
+      <AppSidebar
+        navItems={navItems} activePage={activePage} onNavigate={setPage}
+        lang={lang} setLang={setLang} t={t} dir={dir}
+      />
 
-      <div style={css.main}>
-        <div style={css.topbar}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            {isMobile && (
+      <SidebarInset className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="print-hide flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-card px-3 md:px-6">
+          <div className="flex min-w-0 items-center gap-2">
+            <SidebarTrigger className="-ms-1" />
+            <Separator orientation="vertical" className="me-1 hidden h-5 md:block" />
+            <h1 className="truncate text-[15px] font-bold text-primary md:text-lg">
+              {activeItem?.label}
+            </h1>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 md:gap-3.5">
+            {currentUser.role === "admin" && (
               <button
-                style={css.hamburger}
-                onClick={() => setNavOpen(o => !o)}
-                aria-label={navOpen ? "Close menu" : "Open menu"}
-                aria-expanded={navOpen}
+                type="button"
+                onClick={() => setPage("backup")}
+                title={t.backup.title}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full bg-muted px-2 py-1.5 text-[11px] md:px-2.5",
+                  saveStatus === "error" ? "text-destructive" : "text-muted-foreground",
+                )}
               >
-                {navOpen ? "✕" : "☰"}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "size-[7px] shrink-0 rounded-full",
+                    saveStatus === "saving" ? "bg-amber-500"
+                      : saveStatus === "error" ? "bg-destructive" : "bg-emerald-600",
+                  )}
+                />
+                {/* The dot carries the meaning on mobile; text returns at md. */}
+                <span className="hidden md:inline">
+                  {saveStatus === "saving" ? t.backup.statusSaving
+                    : saveStatus === "error" ? t.backup.statusError : t.backup.statusSaved}
+                </span>
               </button>
             )}
-            <h1 style={css.pageTitle}>{navItems.find(n => n.key === activePage)?.label}</h1>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, flexShrink: 0 }}>
-            {currentUser.role === "admin" && (
-              <div
-                onClick={() => goToPage("backup")}
-                title={t.backup.title}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-                  fontSize: 11, color: saveStatus === "error" ? "#dc2626" : colors.muted,
-                  padding: isMobile ? 6 : "4px 10px", borderRadius: 14, background: colors.light,
-                }}
-              >
-                <span style={{
-                  width: 7, height: 7, borderRadius: "50%", display: "inline-block", flexShrink: 0,
-                  background: saveStatus === "saving" ? "#ca8a04" : saveStatus === "error" ? "#dc2626" : "#16a34a",
-                }} />
-                {/* Status text is dropped on mobile — the coloured dot carries the meaning. */}
-                {!isMobile && (saveStatus === "saving" ? t.backup.statusSaving : saveStatus === "error" ? t.backup.statusError : t.backup.statusSaved)}
+
+            <p className="hidden text-sm text-muted-foreground lg:block">
+              {new Date().toLocaleDateString(lang === "ar" ? "ar-EG" : "en-KE", {
+                weekday: "long", year: "numeric", month: "long", day: "numeric",
+              })}
+            </p>
+
+            <div className="flex items-center gap-2">
+              <Avatar className="size-8 md:size-9">
+                <AvatarFallback className="bg-primary text-sm font-extrabold text-gold">
+                  {currentUser.fullName.charAt(0)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="hidden leading-tight md:block">
+                <p className="text-[13px] font-bold">{currentUser.fullName}</p>
+                <Badge
+                  variant="secondary"
+                  className={cn("px-2 py-0 text-[10px]", ROLE_BADGE[currentUser.role] || ROLE_BADGE.viewer)}
+                >
+                  {t.users.roles[currentUser.role]}
+                </Badge>
               </div>
-            )}
-            {!isMobile && (
-              <div style={{ fontSize: 13, color: colors.muted }}>
-                {new Date().toLocaleDateString(lang === "ar" ? "ar-EG" : "en-KE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div
-                title={isMobile ? `${currentUser.fullName} — ${t.users.roles[currentUser.role]}` : undefined}
-                style={{ width: isMobile ? 32 : 36, height: isMobile ? 32 : 36, flexShrink: 0, borderRadius: "50%", background: colors.primary, color: colors.gold, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: isMobile ? 13 : 16 }}
-              >
-                {currentUser.fullName.charAt(0)}
-              </div>
-              {!isMobile && (
-                <div style={{ lineHeight: 1.3 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: colors.text }}>{currentUser.fullName}</div>
-                  <span style={{ ...css.badge(rc, rbg), fontSize: 10, padding: "1px 8px" }}>{t.users.roles[currentUser.role]}</span>
-                </div>
-              )}
             </div>
-            <button
-              style={{ ...css.btn("ghost"), padding: isMobile ? "7px 10px" : "6px 14px", fontSize: 12 }}
+
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleLogout}
               title={t.login.logout}
               aria-label={t.login.logout}
             >
-              ⏻{isMobile ? "" : ` ${t.login.logout}`}
-            </button>
+              <LogOut className="size-4" />
+              <span className="hidden md:inline">{t.login.logout}</span>
+            </Button>
           </div>
-        </div>
-        <div style={css.content}>{pageMap[activePage] || pageMap.dashboard}</div>
-      </div>
+        </header>
 
-      {toast && <Toast msg={toast} onClose={() => setToast(null)} />}
+        {/* The only scroll container: keeps the shell fixed and lets wide tables
+            scroll inside their own cards rather than moving the whole page. */}
+        <div className="print-area flex-1 overflow-y-auto overflow-x-auto p-3.5 md:p-6">
+          {pageMap[activePage] || pageMap.dashboard}
+        </div>
+      </SidebarInset>
+
       <ConfirmDialog dialog={confirmDialog} onCancel={closeConfirm} />
-    </div>
+    </SidebarProvider>
   );
 }

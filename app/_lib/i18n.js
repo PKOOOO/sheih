@@ -1,6 +1,6 @@
 // School names and full bilingual (EN/AR) translation dictionary, extracted from index.jsx.
 export const SCHOOL_NAMES = {
-  junior: { en: "SHEIKH KHALIFA BIN ZAYED AL NAHYAN JUNIOR SCHOOL", ar: "مدرسة الشيخ خليفة بن زايد آل نهيان الإعدادية" },
+  junior: { en: "SHEIKH KHALIFA BIN ZAYED AL NAHYAN JUNIOR/SENIOR SCHOOL", ar: "مدرسة الشيخ خليفة بن زايد آل نهيان الإعدادية" },
   senior: { en: "SHEIKH KHALIFA BIN ZAYED AL NAHYAN SENIOR SCHOOL", ar: "مدرسة الشيخ خليفة بن زايد آل نهيان الثانوية" },
 };
 
@@ -164,9 +164,10 @@ export const T = {
       selectExam: "Select Exam",
       generate: "Generate Report",
       print: "Print",
-      studentReport: "Student Report Card",
+      studentReport: "Student Madrasa Report Form",
       classReport: "Class Performance Report",
       rankReport: "Class Ranking",
+      subjectReport: "Madrasa Subjects Analysis Report",
     },
     users: {
       title: "User Accounts & Access Levels",
@@ -421,9 +422,10 @@ export const T = {
       selectExam: "اختر الامتحان",
       generate: "إنشاء التقرير",
       print: "طباعة",
-      studentReport: "كشف درجات الطالب",
+      studentReport: "استمارة تقرير المدرسة",
       classReport: "تقرير أداء الفصل",
       rankReport: "ترتيب الفصل",
+      subjectReport: "تقرير تحليل مواد المدرسة",
     },
     users: {
       title: "حسابات المستخدمين ومستويات الوصول",

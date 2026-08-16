@@ -49,6 +49,23 @@ export function downloadWorkbook(filename, sheets) {
 }
 
 // ── Iframe-based print (works inside sandboxed iframes — no popup needed) ──
+// The print frame is a standalone document, so it inherits none of the app's
+// CSS. Views are styled with Tailwind utility classes, which would print as
+// unstyled markup — so the page's own stylesheets are cloned into the frame.
+// They are injected immediately after <head> so the caller's inline <style>
+// (page-specific print rules) still wins.
+function withAppStyles(html) {
+  const links = [...document.querySelectorAll('link[rel="stylesheet"]')]
+    // `.href` is already absolute; the frame has no base URL of its own.
+    .map(l => `<link rel="stylesheet" href="${l.href}">`);
+  const inline = [...document.querySelectorAll("style")]
+    .map(s => `<style>${s.textContent}</style>`);
+  const tags = [...links, ...inline].join("\n");
+  return /<head[^>]*>/i.test(html)
+    ? html.replace(/<head[^>]*>/i, (m) => `${m}\n${tags}`)
+    : `${tags}\n${html}`;
+}
+
 export function iframePrint(html) {
   // Remove any stale print frame
   const old = document.getElementById("__sms_print_frame__");
@@ -61,7 +78,7 @@ export function iframePrint(html) {
 
   const doc = iframe.contentDocument || iframe.contentWindow.document;
   doc.open();
-  doc.write(html);
+  doc.write(withAppStyles(html));
   doc.close();
 
   // Show a close button overlay so user can dismiss after printing
@@ -81,13 +98,35 @@ export function iframePrint(html) {
   document.body.appendChild(closeBtn);
 
   iframe.onload = () => {
-    try {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    } catch(e) {
-      // If browser blocks contentWindow.print(), fall back to triggering from parent
-      window.print();
-    }
+    let printed = false;
+    const doPrint = () => {
+      if (printed) return;
+      printed = true;
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch {
+        // If the browser blocks contentWindow.print(), trigger from the parent.
+        window.print();
+      }
+    };
+
+    // Printing before the cloned stylesheets have loaded produces an unstyled
+    // page, so wait for them — with a timeout so a slow/blocked sheet can't
+    // leave the user staring at a print view that never opens.
+    const links = [...doc.querySelectorAll('link[rel="stylesheet"]')];
+    if (links.length === 0) return doPrint();
+
+    let remaining = links.length;
+    const oneDone = () => { if (--remaining <= 0) doPrint(); };
+    links.forEach(l => {
+      if (l.sheet) oneDone();
+      else {
+        l.addEventListener("load", oneDone, { once: true });
+        l.addEventListener("error", oneDone, { once: true });
+      }
+    });
+    setTimeout(doPrint, 2500);
   };
 }
 

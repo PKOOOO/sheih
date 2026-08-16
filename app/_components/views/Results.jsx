@@ -1,11 +1,42 @@
 "use client";
 import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import {
+  Check, FileDown, FolderOpen, Ruler, Save, Trash2, TriangleAlert, X,
+} from "lucide-react";
 import { uid, downloadWorkbook, nowStamp } from "../../_lib/storage";
+import CbcBadge from "../CbcBadge";
+import LevelToggle from "../LevelToggle";
+import PageHeader from "../PageHeader";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+
+// base-ui Selects reject "" as an item value, so the "nothing selected" state
+// is carried by a sentinel and mapped back to "" at the component boundary.
+const NONE = "__none__";
+const fromNone = (v) => (v === NONE ? "" : v);
+
+const pctClass = (p) => (p >= 70 ? "text-green-800" : p >= 50 ? "text-amber-700" : "text-red-800");
 
 // Results entry view, extracted from App() in index.jsx.
 export default function Results({
-  t, colors, css, exams, results, setResults, students, subjects, gradesFor, streamsFor, cbe, showToast, showConfirm,
+  t, exams, results, setResults, students, subjects, gradesFor, streamsFor, cbe, showToast, showConfirm,
 }) {
   const [selLevel, setSelLevel]   = useState("junior");
   const [selExam, setSelExam]     = useState(exams.find(e => e.level === "junior")?.id || "");
@@ -23,6 +54,7 @@ export default function Results({
 
   const exam = exams.find(e => e.id === selExam);
   const examsForLevel = exams.filter(e => e.level === selLevel);
+  const levelSubjects = subjects.filter(s => (s.levels || []).includes(selLevel));
   const filteredStudents = students.filter(s =>
     s.level === selLevel && s.grade === selGrade && s.stream === selStream
   );
@@ -34,12 +66,6 @@ export default function Results({
     setSelExam(exams.find(e => e.level === level)?.id || "");
     setEditScores({});
     setImportPreview(null);
-  };
-
-  const getScore = (stuId) => {
-    if (editScores[stuId] !== undefined) return editScores[stuId];
-    const r = results.find(r => r.examId === selExam && r.studentId === stuId && r.subjectId === selSubject);
-    return r ? r.score : "";
   };
 
   const saveAll = () => {
@@ -75,8 +101,8 @@ export default function Results({
     });
     setEditScores({});
     showToast(isCustom
-      ? `✓ Saved ${updates.length} score(s). Converted from /${limitVal} → /${examMax}.`
-      : `✓ Saved ${updates.length} score(s).`);
+      ? `Saved ${updates.length} score(s). Converted from /${limitVal} → /${examMax}.`
+      : `Saved ${updates.length} score(s).`);
   };
 
   const downloadMarksTemplate = () => {
@@ -97,7 +123,6 @@ export default function Results({
     if (!selExam || filteredStudents.length === 0) {
       showToast("Select an exam, grade and stream with enrolled students first."); return;
     }
-    const levelSubjects = subjects.filter(s => (s.levels || []).includes(selLevel));
     const rows = filteredStudents.map(s => {
       const entry = { AdmNo: s.admNo, Name: s.name };
       levelSubjects.forEach(sub => {
@@ -213,7 +238,6 @@ export default function Results({
     };
     reader.onerror = () => showToast("Error reading file.");
     reader.readAsArrayBuffer(file);
-    setTimeout(() => { if(file.input) file.input.value = ""; }, 100);
   };
 
   const handleSingleFile = (e) => { const f = e.target.files[0]; if(f) parseMarksFile(f, false); setTimeout(()=>{e.target.value="";},100); };
@@ -240,722 +264,743 @@ export default function Results({
     setImportTab("manual");
   };
 
-  const tabStyle = (key) => ({
-    padding: "9px 18px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
-    background: importTab === key ? colors.primary : "#f9fafb",
-    color: importTab === key ? "#fff" : colors.muted,
-    borderBottom: importTab === key ? "none" : `1px solid ${colors.border}`,
-    borderRight: `1px solid ${colors.border}`,
-  });
+  // ── Shared derived values ──
+  const examMax = exam?.maxScore || 100;
+  const manualLimit = customLimit && +customLimit > 0 ? +customLimit : examMax;
+  const manualIsCustom = manualLimit !== examMax;
+  const importIsCustom = importLimit && +importLimit > 0 && +importLimit !== examMax;
+
+  const examItems = { [NONE]: "— Select exam —", ...Object.fromEntries(examsForLevel.map(e => [e.id, `${e.examName} (${e.term} ${e.year})`])) };
+  const subjectItems = { [NONE]: "— Select subject —", ...Object.fromEntries(levelSubjects.map(s => [s.id, `${s.name} (${s.code})`])) };
+  const studentItems = { [NONE]: "— Select —", ...Object.fromEntries(students.map(s => [s.id, `${s.name} (${s.admNo})`])) };
+
+  const dirtyCount = Object.keys(editScores).length;
 
   return (
-    <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
-        <h2 style={{ margin:0, color:colors.primary }}>{t.results.title}</h2>
-      </div>
+    <div className="space-y-4">
+      <PageHeader title={t.results.title} />
 
-      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
-        <button style={css.levelPill("junior", selLevel==="junior")} onClick={() => onLevelChange("junior")}>{t.dashboard.junior}</button>
-        <button style={css.levelPill("senior", selLevel==="senior")} onClick={() => onLevelChange("senior")}>{t.dashboard.senior}</button>
-      </div>
+      <LevelToggle t={t} value={selLevel} onChange={onLevelChange} className="max-w-xs" />
 
-      <div style={{ ...css.card, marginBottom:16 }}>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:14 }}>
-          <div>
-            <label style={css.label}>{t.results.selectExam}</label>
-            <select style={css.select} value={selExam} onChange={e => setSelExam(e.target.value)}>
-              <option value="">— Select exam —</option>
-              {examsForLevel.map(e => <option key={e.id} value={e.id}>{e.examName} ({e.term} {e.year})</option>)}
-            </select>
+      <Card>
+        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3 [&>div]:min-w-0">
+          <div className="grid gap-1.5">
+            <Label htmlFor="rs-exam">{t.results.selectExam}</Label>
+            <Select items={examItems} value={selExam || NONE} onValueChange={v => setSelExam(fromNone(v))}>
+              <SelectTrigger id="rs-exam" className="w-full overflow-hidden"><SelectValue className="truncate" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>— Select exam —</SelectItem>
+                {examsForLevel.map(e => (
+                  <SelectItem key={e.id} value={e.id}>{e.examName} ({e.term} {e.year})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div>
-            <label style={css.label}>{t.results.selectGrade}</label>
-            <select style={css.select} value={selGrade} onChange={e => setSelGrade(e.target.value)}>
-              {gradesFor(selLevel).map(g => <option key={g}>{g}</option>)}
-            </select>
+          <div className="grid gap-1.5">
+            <Label htmlFor="rs-grade">{t.results.selectGrade}</Label>
+            <Select value={selGrade} onValueChange={setSelGrade}>
+              <SelectTrigger id="rs-grade" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {gradesFor(selLevel).map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
-          <div>
-            <label style={css.label}>{t.results.selectStream}</label>
-            <select style={css.select} value={selStream} onChange={e => setSelStream(e.target.value)}>
-              {streamsFor(selLevel).map(s => <option key={s}>{s}</option>)}
-            </select>
+          <div className="grid gap-1.5">
+            <Label htmlFor="rs-stream">{t.results.selectStream}</Label>
+            <Select value={selStream} onValueChange={setSelStream}>
+              <SelectTrigger id="rs-stream" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {streamsFor(selLevel).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* Tab bar */}
-      <div style={{ display:"flex", borderRadius:"8px 8px 0 0", overflow:"hidden", border:`1px solid ${colors.border}`, marginBottom:0, width:"fit-content", flexWrap:"wrap" }}>
-        <button style={tabStyle("manual")} onClick={() => setImportTab("manual")}>✏️ Manual Entry</button>
-        <button style={tabStyle("import")} onClick={() => setImportTab("import")}>📥 Import — Single Subject</button>
-        <button style={tabStyle("bulkimport")} onClick={() => setImportTab("bulkimport")}>📦 Import — All Subjects</button>
-        <button style={tabStyle("clear")} onClick={() => setImportTab("clear")}>🗑 Clear Results</button>
-      </div>
+      <Tabs value={importTab} onValueChange={setImportTab}>
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="manual">Manual Entry</TabsTrigger>
+          <TabsTrigger value="import">Import — Single Subject</TabsTrigger>
+          <TabsTrigger value="bulkimport">Import — All Subjects</TabsTrigger>
+          <TabsTrigger value="clear">Clear Results</TabsTrigger>
+        </TabsList>
 
-      {/* MANUAL ENTRY */}
-      {importTab === "manual" && (
-        <div style={{ ...css.card, borderRadius:"0 8px 8px 8px" }}>
-
-          {/* Subject selector + score limit + download */}
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:12, alignItems:"flex-end", marginBottom:16 }}>
-            <div>
-              <label style={css.label}>{t.results.selectSubject}</label>
-              <select style={css.select} value={selSubject}
-                onChange={e => { setSelSubject(e.target.value); setCustomLimit(""); setEditScores({}); }}>
-                <option value="">— Select subject —</option>
-                {subjects.filter(s => (s.levels||[]).includes(selLevel)).map(s =>
-                  <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
-                )}
-              </select>
-            </div>
-
-            {/* Custom score limit */}
-            <div style={{ minWidth:180 }}>
-              <label style={css.label}>
-                Score Limit
-                <span style={{ fontWeight:400, color:colors.muted, fontSize:11, marginLeft:6 }}>
-                  (leave blank to use exam max: {exam?.maxScore || 100})
-                </span>
-              </label>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <input
-                  type="number" min={1}
-                  style={{
-                    ...css.input, width:100,
-                    borderColor: customLimit && +customLimit > 0 && +customLimit !== (exam?.maxScore || 100) ? "#ca8a04" : colors.border,
-                    background: customLimit && +customLimit > 0 && +customLimit !== (exam?.maxScore || 100) ? "#fefce8" : "#fff",
-                  }}
-                  value={customLimit}
-                  placeholder={String(exam?.maxScore || 100)}
-                  onChange={e => setCustomLimit(e.target.value)}
-                />
-                {customLimit && (
-                  <button onClick={() => setCustomLimit("")}
-                    style={{ background:"none", border:"none", cursor:"pointer", color:colors.danger, fontSize:16, padding:0 }}
-                    title="Clear — use exam max">×</button>
-                )}
-              </div>
-            </div>
-
-            <button style={css.btn("ghost")} onClick={downloadMarksTemplate}
-              title="Download pre-filled score sheet for this class">
-              📋 Score Sheet
-            </button>
-          </div>
-
-          {/* Active limit info banner */}
-          {selExam && selSubject && (() => {
-            const examMax2 = exam?.maxScore || 100;
-            const effectiveMax = customLimit && +customLimit > 0 ? +customLimit : examMax2;
-            const isCustom = customLimit && +customLimit > 0 && +customLimit !== examMax2;
-            if (!isCustom) return null;
-            const exampleRaw = Math.round(effectiveMax * 0.8);
-            const exampleStored = Math.round((exampleRaw / effectiveMax) * examMax2);
-            return (
-              <div style={{
-                background:"#fef9c3", border:"1px solid #fde047", borderRadius:8,
-                padding:"10px 14px", marginBottom:14, fontSize:13, color:"#854d0e",
-                display:"flex", alignItems:"center", gap:10
-              }}>
-                <span style={{ fontSize:18 }}>📐</span>
-                <div>
-                  <strong>Custom limit active:</strong> Enter scores out of <strong>{effectiveMax}</strong>.
-                  {" "}Formula: <code style={{ background:"#fde047", padding:"1px 5px", borderRadius:3 }}>stored = (score ÷ {effectiveMax}) × {examMax2}</code>
-                  <br/>
-                  <span style={{ fontSize:12 }}>
-                    Example: {exampleRaw}/{effectiveMax} → <strong>{exampleStored}/{examMax2}</strong>
-                    {" "}({Math.round((exampleRaw/effectiveMax)*100)}%)
-                    — CBC: {cbe(exampleStored, examMax2).code}
-                  </span>
+        {/* ── MANUAL ENTRY ── */}
+        <TabsContent value="manual">
+          <Card>
+            <CardContent className="space-y-4 p-4 md:p-6">
+              <div className="grid items-end gap-4 sm:grid-cols-2 lg:grid-cols-3 [&>div]:min-w-0">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="rs-subject">{t.results.selectSubject}</Label>
+                  <Select
+                    items={subjectItems}
+                    value={selSubject || NONE}
+                    onValueChange={v => { setSelSubject(fromNone(v)); setCustomLimit(""); setEditScores({}); }}
+                  >
+                    <SelectTrigger id="rs-subject" className="w-full overflow-hidden"><SelectValue className="truncate" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>— Select subject —</SelectItem>
+                      {levelSubjects.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-            );
-          })()}
 
-          {!selExam || !selSubject ? (
-            <p style={{ color:colors.muted, textAlign:"center", padding:"30px 0" }}>
-              Select an exam and subject above to enter scores.
-            </p>
-          ) : filteredStudents.length === 0 ? (
-            <p style={{ color:colors.muted, textAlign:"center", padding:"30px 0" }}>
-              No students enrolled in {selGrade} Stream {selStream}.
-            </p>
-          ) : (() => {
-            const examMax    = exam?.maxScore || 100;
-            const limitVal   = customLimit && +customLimit > 0 ? +customLimit : examMax;
-            const isCustom   = limitVal !== examMax;
-
-            const toStored = (raw) => isCustom
-              ? Math.round((+raw / limitVal) * examMax * 100) / 100
-              : +raw;
-
-            // Get display score (what was entered, not stored)
-            const getDisplayScore = (stuId) => {
-              if (editScores[stuId] !== undefined) return editScores[stuId];
-              const r = results.find(r => r.examId === selExam && r.studentId === stuId && r.subjectId === selSubject);
-              if (!r) return "";
-              // Back-convert stored → entry scale for display
-              return isCustom
-                ? String(Math.round((r.score / examMax) * limitVal * 100) / 100)
-                : String(r.score);
-            };
-
-            // Already-stored percentage (from DB)
-            const getStoredScore = (stuId) => {
-              const r = results.find(r => r.examId === selExam && r.studentId === stuId && r.subjectId === selSubject);
-              return r ? r.score : null;
-            };
-
-            return (
-              <>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:10, justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                  <div style={{ fontSize:12, color:colors.muted }}>
-                    {filteredStudents.length} students ·
-                    Entry out of <strong>{limitVal}</strong>
-                    {isCustom && <span> → stored out of <strong>{examMax}</strong></span>}
-                  </div>
-                  {Object.keys(editScores).length > 0 && (
-                    <span style={{ color:"#854d0e", fontSize:12, fontWeight:600 }}>
-                      ⚠ {Object.keys(editScores).length} unsaved change(s)
+                <div className="grid gap-1.5">
+                  <Label htmlFor="rs-limit">
+                    Score Limit
+                    <span className="ms-1.5 text-[11px] font-normal text-muted-foreground">
+                      (blank = exam max: {examMax})
                     </span>
-                  )}
+                  </Label>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      id="rs-limit" type="number" min={1} className={cn("w-28", manualIsCustom && "border-amber-500 bg-amber-50")}
+                      value={customLimit} placeholder={String(examMax)}
+                      onChange={e => setCustomLimit(e.target.value)}
+                    />
+                    {customLimit && (
+                      <Button
+                        variant="ghost" size="icon" className="text-destructive hover:text-destructive"
+                        onClick={() => setCustomLimit("")} title="Clear — use exam max" aria-label="Clear score limit"
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
-                <table style={css.table}>
-                  <thead>
-                    <tr>
-                      <th style={css.th}>#</th>
-                      <th style={css.th}>{t.students.admNo}</th>
-                      <th style={css.th}>{t.results.studentName}</th>
-                      <th style={css.th}>
-                        Score
-                        <span style={{ fontWeight:400, color:colors.muted, fontSize:11, marginLeft:4 }}>
-                          / {limitVal}
-                        </span>
-                      </th>
-                      {isCustom && (
-                        <th style={css.th}>
-                          Converted
-                          <span style={{ fontWeight:400, color:colors.muted, fontSize:11, marginLeft:4 }}>
-                            / {examMax}
-                          </span>
-                        </th>
+                <Button variant="secondary" onClick={downloadMarksTemplate} title="Download pre-filled score sheet for this class">
+                  <FileDown className="size-4" aria-hidden="true" />
+                  Score Sheet
+                </Button>
+              </div>
+
+              {/* Active limit info banner */}
+              {selExam && selSubject && manualIsCustom && (() => {
+                const exampleRaw = Math.round(manualLimit * 0.8);
+                const exampleStored = Math.round((exampleRaw / manualLimit) * examMax);
+                return (
+                  <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                    <Ruler className="size-4" aria-hidden="true" />
+                    <AlertDescription className="text-amber-900">
+                      <p>
+                        <strong>Custom limit active:</strong> Enter scores out of <strong>{manualLimit}</strong>.
+                        {" "}Formula: <code className="rounded bg-amber-200 px-1.5 py-0.5">stored = (score ÷ {manualLimit}) × {examMax}</code>
+                      </p>
+                      <p className="text-xs">
+                        Example: {exampleRaw}/{manualLimit} → <strong>{exampleStored}/{examMax}</strong>
+                        {" "}({Math.round((exampleRaw / manualLimit) * 100)}%) — CBC: {cbe(exampleStored, examMax).code}
+                      </p>
+                    </AlertDescription>
+                  </Alert>
+                );
+              })()}
+
+              {!selExam || !selSubject ? (
+                <p className="py-8 text-center text-muted-foreground">Select an exam and subject above to enter scores.</p>
+              ) : filteredStudents.length === 0 ? (
+                <p className="py-8 text-center text-muted-foreground">
+                  No students enrolled in {selGrade} Stream {selStream}.
+                </p>
+              ) : (() => {
+                const toStored = (raw) => manualIsCustom
+                  ? Math.round((+raw / manualLimit) * examMax * 100) / 100
+                  : +raw;
+
+                // What the teacher typed, on the entry scale. Stored values are
+                // back-converted so re-opening a saved sheet shows the same numbers.
+                const getDisplayScore = (stuId) => {
+                  if (editScores[stuId] !== undefined) return editScores[stuId];
+                  const r = results.find(r => r.examId === selExam && r.studentId === stuId && r.subjectId === selSubject);
+                  if (!r) return "";
+                  return manualIsCustom
+                    ? String(Math.round((r.score / examMax) * manualLimit * 100) / 100)
+                    : String(r.score);
+                };
+
+                const getStoredScore = (stuId) => {
+                  const r = results.find(r => r.examId === selExam && r.studentId === stuId && r.subjectId === selSubject);
+                  return r ? r.score : null;
+                };
+
+                return (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2.5">
+                      <p className="text-xs text-muted-foreground">
+                        {filteredStudents.length} students · Entry out of <strong>{manualLimit}</strong>
+                        {manualIsCustom && <> → stored out of <strong>{examMax}</strong></>}
+                      </p>
+                      {dirtyCount > 0 && (
+                        <Badge variant="secondary" className="gap-1 bg-amber-100 text-amber-900">
+                          <TriangleAlert className="size-3" aria-hidden="true" />
+                          {dirtyCount} unsaved change(s)
+                        </Badge>
                       )}
-                      <th style={css.th}>%</th>
-                      <th style={css.th}>{t.results.cbeLevel}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredStudents.map((s, i) => {
-                      const displayVal = getDisplayScore(s.id);
-                      const isDirty    = editScores[s.id] !== undefined;
+                    </div>
 
-                      // Compute values for display
-                      let storedVal = null, pct = null, cbeR = null;
-                      if (displayVal !== "") {
-                        storedVal = toStored(+displayVal);
-                        pct       = Math.round((storedVal / examMax) * 100);
-                        cbeR      = cbe(storedVal, examMax);
-                      } else {
-                        // Use previously stored score if any (not in edit mode)
-                        const existing = getStoredScore(s.id);
-                        if (existing !== null) {
-                          storedVal = existing;
-                          pct       = Math.round((existing / examMax) * 100);
-                          cbeR      = cbe(existing, examMax);
-                        }
-                      }
-
-                      // Validation
-                      const rawNum = displayVal !== "" ? +displayVal : NaN;
-                      const outOfRange = !isNaN(rawNum) && (rawNum < 0 || rawNum > limitVal);
-
-                      return (
-                        <tr key={s.id} style={{ background: i%2===0 ? "#fff" : colors.light }}>
-                          <td style={{ ...css.td, color:colors.muted }}>{i+1}</td>
-                          <td style={{ ...css.td, fontWeight:700, color:colors.primary }}>{s.admNo}</td>
-                          <td style={css.td}>{s.name}</td>
-                          <td style={css.td}>
-                            <input
-                              type="number" min={0} max={limitVal} placeholder="—"
-                              value={displayVal}
-                              style={{
-                                ...css.input, width:90,
-                                background: outOfRange ? "#fee2e2"
-                                  : isDirty ? "#fefce8"
-                                  : displayVal !== "" ? "#f0f9ff" : "#fff",
-                                borderColor: outOfRange ? colors.danger
-                                  : isDirty ? "#ca8a04"
-                                  : colors.border,
-                              }}
-                              onChange={e => setEditScores(p => ({ ...p, [s.id]: e.target.value }))}
-                            />
-                            {outOfRange && (
-                              <div style={{ fontSize:10, color:colors.danger, marginTop:2 }}>
-                                Max: {limitVal}
-                              </div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>#</TableHead>
+                            <TableHead>{t.students.admNo}</TableHead>
+                            <TableHead>{t.results.studentName}</TableHead>
+                            <TableHead className="whitespace-nowrap">
+                              Score <span className="font-normal text-muted-foreground">/ {manualLimit}</span>
+                            </TableHead>
+                            {manualIsCustom && (
+                              <TableHead className="whitespace-nowrap">
+                                Converted <span className="font-normal text-muted-foreground">/ {examMax}</span>
+                              </TableHead>
                             )}
-                          </td>
-                          {isCustom && (
-                            <td style={{ ...css.td, color: storedVal !== null ? colors.primary : colors.muted, fontWeight:600 }}>
-                              {storedVal !== null ? storedVal.toFixed(storedVal % 1 === 0 ? 0 : 1) : "—"}
-                            </td>
-                          )}
-                          <td style={{ ...css.td, fontWeight:600 }}>
-                            {pct !== null ? (
-                              <span style={{
-                                color: pct >= 70 ? "#166534" : pct >= 50 ? "#854d0e" : "#991b1b",
-                                fontWeight: 700
-                              }}>
-                                {pct}%
-                              </span>
-                            ) : "—"}
-                          </td>
-                          <td style={css.td}>
-                            {cbeR
-                              ? <span style={css.badge(cbeR.color, cbeR.bg)}>{cbeR.code} — {cbeR.label}</span>
-                              : <span style={{ color:colors.muted }}>—</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <TableHead>%</TableHead>
+                            <TableHead>{t.results.cbeLevel}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredStudents.map((s, i) => {
+                            const displayVal = getDisplayScore(s.id);
+                            const isDirty = editScores[s.id] !== undefined;
 
-                {Object.keys(editScores).length > 0 && (
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:10, justifyContent:"space-between", alignItems:"center", marginTop:14, padding:"12px 0", borderTop:`1px solid ${colors.border}` }}>
-                    <div style={{ fontSize:12, color:colors.muted }}>
-                      {isCustom && "Scores will be converted from /" + limitVal + " → /" + examMax + " before saving."}
+                            let storedVal = null, pct = null, cbeR = null;
+                            if (displayVal !== "") {
+                              storedVal = toStored(+displayVal);
+                              pct = Math.round((storedVal / examMax) * 100);
+                              cbeR = cbe(storedVal, examMax);
+                            } else {
+                              const existing = getStoredScore(s.id);
+                              if (existing !== null) {
+                                storedVal = existing;
+                                pct = Math.round((existing / examMax) * 100);
+                                cbeR = cbe(existing, examMax);
+                              }
+                            }
+
+                            const rawNum = displayVal !== "" ? +displayVal : NaN;
+                            const outOfRange = !isNaN(rawNum) && (rawNum < 0 || rawNum > manualLimit);
+
+                            return (
+                              <TableRow key={s.id} className={i % 2 === 1 ? "bg-muted/50" : undefined}>
+                                <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                                <TableCell className="font-bold text-primary">{s.admNo}</TableCell>
+                                <TableCell className="whitespace-nowrap">{s.name}</TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number" min={0} max={manualLimit} placeholder="—"
+                                    aria-label={`Score for ${s.name}`}
+                                    aria-invalid={outOfRange || undefined}
+                                    className={cn("w-24",
+                                      outOfRange ? "border-destructive bg-red-50"
+                                        : isDirty ? "border-amber-500 bg-amber-50"
+                                        : displayVal !== "" ? "bg-sky-50" : undefined)}
+                                    value={displayVal}
+                                    onChange={e => setEditScores(p => ({ ...p, [s.id]: e.target.value }))}
+                                  />
+                                  {outOfRange && (
+                                    <p className="mt-0.5 text-[10px] text-destructive">Max: {manualLimit}</p>
+                                  )}
+                                </TableCell>
+                                {manualIsCustom && (
+                                  <TableCell className={cn("font-semibold tabular-nums", storedVal !== null ? "text-primary" : "text-muted-foreground")}>
+                                    {storedVal !== null ? storedVal.toFixed(storedVal % 1 === 0 ? 0 : 1) : "—"}
+                                  </TableCell>
+                                )}
+                                <TableCell className={cn("font-bold tabular-nums", pct !== null ? pctClass(pct) : "text-muted-foreground")}>
+                                  {pct !== null ? `${pct}%` : "—"}
+                                </TableCell>
+                                <TableCell><CbcBadge level={cbeR} showLabel /></TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
                     </div>
-                    <button style={css.btn()} onClick={saveAll}>
-                      💾 Save {Object.keys(editScores).length} Score(s)
-                      {isCustom && ` (converted from /${limitVal})`}
-                    </button>
+
+                    {dirtyCount > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2.5 border-t pt-3.5">
+                        <p className="text-xs text-muted-foreground">
+                          {manualIsCustom && `Scores will be converted from /${manualLimit} → /${examMax} before saving.`}
+                        </p>
+                        <Button onClick={saveAll}>
+                          <Save className="size-4" aria-hidden="true" />
+                          Save {dirtyCount} Score(s)
+                          {manualIsCustom && ` (converted from /${manualLimit})`}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── SINGLE SUBJECT IMPORT ── */}
+        <TabsContent value="import">
+          <Card>
+            <CardContent className="space-y-4 p-4 md:p-6">
+              <div>
+                <h3 className="text-[15px] font-bold text-primary">Import Marks — Single Subject</h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Upload an Excel file with scores for <strong>one subject</strong>. Required columns:{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5">AdmNo</code> and{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5">Score</code>{" "}
+                  (or <code className="rounded bg-muted px-1.5 py-0.5">Marks</code>).
+                </p>
+              </div>
+
+              <div className="grid items-end gap-4 sm:grid-cols-2 [&>div]:min-w-0">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="imp-subject">Subject for this import</Label>
+                  <Select items={subjectItems} value={selSubject || NONE} onValueChange={v => setSelSubject(fromNone(v))}>
+                    <SelectTrigger id="imp-subject" className="w-full overflow-hidden"><SelectValue className="truncate" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>— Select subject —</SelectItem>
+                      {levelSubjects.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="imp-limit">
+                    Score Limit
+                    <span className="ms-1.5 text-[11px] font-normal text-muted-foreground">
+                      (blank = exam max: {examMax})
+                    </span>
+                  </Label>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      id="imp-limit" type="number" min={1} className={cn("w-28", importIsCustom && "border-amber-500 bg-amber-50")}
+                      value={importLimit} placeholder={String(examMax)}
+                      onChange={e => setImportLimit(e.target.value)}
+                    />
+                    {importLimit && (
+                      <Button
+                        variant="ghost" size="icon" className="text-destructive hover:text-destructive"
+                        onClick={() => setImportLimit("")} title="Clear limit" aria-label="Clear score limit"
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </Button>
+                    )}
                   </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      )}
+                </div>
+              </div>
 
-      {/* SINGLE SUBJECT IMPORT */}
-      {importTab === "import" && (
-        <div style={{ ...css.card, borderRadius:"0 8px 8px 8px" }}>
-          <div style={{ fontWeight:700, color:colors.primary, fontSize:15, marginBottom:8 }}>
-            📥 Import Marks — Single Subject
-          </div>
-          <p style={{ fontSize:13, color:colors.muted, marginBottom:16, lineHeight:1.6 }}>
-            Upload an Excel file with scores for <strong>one subject</strong>. Required columns:
-            <code style={{ background:"#f3f4f6", padding:"1px 6px", borderRadius:4, margin:"0 3px" }}>AdmNo</code> and
-            <code style={{ background:"#f3f4f6", padding:"1px 6px", borderRadius:4, margin:"0 3px" }}>Score</code>
-            (or <code style={{ background:"#f3f4f6", padding:"1px 6px", borderRadius:4 }}>Marks</code>).
-          </p>
+              {importIsCustom && (() => {
+                const lv = +importLimit;
+                const ex1 = Math.round(lv * 0.5), ex2 = Math.round(lv * 0.8);
+                return (
+                  <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                    <Ruler className="size-4" aria-hidden="true" />
+                    <AlertDescription className="text-amber-900">
+                      <p>
+                        <strong>Conversion active:</strong> Scores in the file are out of <strong>{lv}</strong> →
+                        stored out of <strong>{examMax}</strong>.
+                      </p>
+                      <p className="text-xs">
+                        Formula: <code className="rounded bg-amber-200 px-1.5 py-0.5">(score ÷ {lv}) × {examMax}</code>
+                        {" · "}{ex1}/{lv} → <strong>{Math.round((ex1 / lv) * examMax)}/{examMax}</strong>
+                        {" · "}{ex2}/{lv} → <strong>{Math.round((ex2 / lv) * examMax)}/{examMax}</strong>
+                      </p>
+                    </AlertDescription>
+                  </Alert>
+                );
+              })()}
 
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:16, marginBottom:16, alignItems:"flex-end" }}>
-            <div>
-              <label style={css.label}>Subject for this import</label>
-              <select style={css.select} value={selSubject} onChange={e => setSelSubject(e.target.value)}>
-                <option value="">— Select subject —</option>
-                {subjects.filter(s => (s.levels||[]).includes(selLevel)).map(s =>
-                  <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
-                )}
-              </select>
-            </div>
-            <div style={{ minWidth:180 }}>
-              <label style={css.label}>
-                Score Limit
-                <span style={{ fontWeight:400, color:colors.muted, fontSize:11, marginLeft:6 }}>
-                  (blank = exam max: {exam?.maxScore || 100})
-                </span>
-              </label>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <div className="flex flex-wrap gap-2.5">
+                <Button onClick={() => importFileRef.current?.click()}>
+                  <FolderOpen className="size-4" aria-hidden="true" />
+                  Choose File (.xlsx)
+                </Button>
+                <Button variant="secondary" onClick={downloadMarksTemplate}>
+                  <FileDown className="size-4" aria-hidden="true" />
+                  Download Score Sheet Template
+                </Button>
                 <input
-                  type="number" min={1}
-                  style={{
-                    ...css.input, width:100,
-                    borderColor: importLimit && +importLimit > 0 && +importLimit !== (exam?.maxScore||100) ? "#ca8a04" : colors.border,
-                    background: importLimit && +importLimit > 0 && +importLimit !== (exam?.maxScore||100) ? "#fefce8" : "#fff",
-                  }}
-                  value={importLimit}
-                  placeholder={String(exam?.maxScore || 100)}
-                  onChange={e => setImportLimit(e.target.value)}
+                  ref={importFileRef} type="file" className="hidden" onChange={handleSingleFile}
+                  accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 />
-                {importLimit && (
-                  <button onClick={() => setImportLimit("")}
-                    style={{ background:"none", border:"none", cursor:"pointer", color:colors.danger, fontSize:16, padding:0 }}
-                    title="Clear limit">×</button>
-                )}
               </div>
-            </div>
-          </div>
 
-          {/* Conversion preview banner */}
-          {importLimit && +importLimit > 0 && +importLimit !== (exam?.maxScore||100) && (() => {
-            const lv = +importLimit, em = exam?.maxScore||100;
-            const ex1 = Math.round(lv * 0.5), ex2 = Math.round(lv * 0.8);
-            return (
-              <div style={{ background:"#fef9c3", border:"1px solid #fde047", borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:13, color:"#854d0e" }}>
-                <strong>📐 Conversion active:</strong> Scores in file are out of <strong>{lv}</strong> → will be stored out of <strong>{em}</strong>.
-                <br/>
-                <span style={{ fontSize:12 }}>
-                  Formula: <code style={{ background:"#fde047", padding:"1px 5px", borderRadius:3 }}>(score ÷ {lv}) × {em}</code>
-                  &nbsp;·&nbsp; {ex1}/{lv} → <strong>{Math.round((ex1/lv)*em)}/{em}</strong>
-                  &nbsp;·&nbsp; {ex2}/{lv} → <strong>{Math.round((ex2/lv)*em)}/{em}</strong>
-                </span>
+              <div className="overflow-x-auto rounded-lg bg-muted p-4">
+                <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Expected format</p>
+                <Table className="text-xs">
+                  <TableHeader>
+                    <TableRow><TableHead>AdmNo</TableHead><TableHead>Name</TableHead><TableHead>Score</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[["ADM001","Fatima Hassan","25"],["ADM002","Omar Khalid","22"],["ADM003","Aisha Mohamed","47"]].map(([a,n,s]) => (
+                      <TableRow key={a}><TableCell>{a}</TableCell><TableCell>{n}</TableCell><TableCell>{s}</TableCell></TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  The score column can also be named <code>Marks</code>, <code>Mark</code>, or the subject code/name
+                  (auto-detected). If a score limit is set above, all scores in the file are converted automatically.
+                </p>
               </div>
-            );
-          })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:20 }}>
-            <button style={css.btn()} onClick={() => importFileRef.current?.click()}>📂 Choose File (.xlsx)</button>
-            <button style={css.btn("ghost")} onClick={downloadMarksTemplate}>📋 Download Score Sheet Template</button>
-            <input ref={importFileRef} type="file"
-              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              style={{ display:"none" }} onChange={handleSingleFile} />
-          </div>
-          <div style={{ background:colors.light, borderRadius:8, padding:"12px 16px", overflowX:"auto" }}>
-            <div style={{ fontWeight:600, fontSize:12, marginBottom:8, color:colors.muted }}>EXPECTED FORMAT</div>
-            <table style={{ ...css.table, fontSize:12 }}>
-              <thead>
-                <tr><th style={css.th}>AdmNo</th><th style={css.th}>Name</th><th style={css.th}>Score</th></tr>
-              </thead>
-              <tbody>
-                {[["ADM001","Fatima Hassan","25"],["ADM002","Omar Khalid","22"],["ADM003","Aisha Mohamed","47"]].map(([a,n,s])=>(
-                  <tr key={a}><td style={css.td}>{a}</td><td style={css.td}>{n}</td><td style={css.td}>{s}</td></tr>
-                ))}
-              </tbody>
-            </table>
-            <p style={{ fontSize:11, color:colors.muted, marginTop:8 }}>
-              Score column can also be named <code>Marks</code>, <code>Mark</code>, or the subject code/name (auto-detected).
-              If a score limit is set above, all scores in the file will be converted automatically.
-            </p>
-          </div>
-        </div>
-      )}
+        {/* ── BULK (ALL SUBJECTS) IMPORT ── */}
+        <TabsContent value="bulkimport">
+          <Card>
+            <CardContent className="space-y-4 p-4 md:p-6">
+              <div>
+                <h3 className="text-[15px] font-bold text-primary">Import Marks — All Subjects (Bulk)</h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Upload one file with scores for <strong>multiple subjects</strong>. Use{" "}
+                  <strong>subject codes</strong> (e.g. <code>QRT</code>, <code>ARB</code>) as column headers.
+                </p>
+              </div>
 
-      {/* BULK (ALL SUBJECTS) IMPORT */}
-      {importTab === "bulkimport" && (
-        <div style={{ ...css.card, borderRadius:"0 8px 8px 8px" }}>
-          <div style={{ fontWeight:700, color:colors.primary, fontSize:15, marginBottom:8 }}>
-            📦 Import Marks — All Subjects (Bulk)
-          </div>
-          <p style={{ fontSize:13, color:colors.muted, marginBottom:16, lineHeight:1.6 }}>
-            Upload one file with scores for <strong>multiple subjects</strong>.
-            Use <strong>subject codes</strong> (e.g. <code>QRT</code>, <code>ARB</code>) as column headers.
-          </p>
-
-          {/* Score limit for bulk */}
-          <div style={{ marginBottom:16 }}>
-            <label style={css.label}>
-              Score Limit for all subjects
-              <span style={{ fontWeight:400, color:colors.muted, fontSize:11, marginLeft:6 }}>
-                (applies to all subject columns — leave blank for exam max: {exam?.maxScore || 100})
-              </span>
-            </label>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <input
-                type="number" min={1}
-                style={{
-                  ...css.input, width:110,
-                  borderColor: importLimit && +importLimit > 0 && +importLimit !== (exam?.maxScore||100) ? "#ca8a04" : colors.border,
-                  background: importLimit && +importLimit > 0 && +importLimit !== (exam?.maxScore||100) ? "#fefce8" : "#fff",
-                }}
-                value={importLimit}
-                placeholder={String(exam?.maxScore || 100)}
-                onChange={e => setImportLimit(e.target.value)}
-              />
-              {importLimit && (
-                <button onClick={() => setImportLimit("")}
-                  style={{ background:"none", border:"none", cursor:"pointer", color:colors.danger, fontSize:16, padding:0 }}>×</button>
-              )}
-              {importLimit && +importLimit > 0 && +importLimit !== (exam?.maxScore||100) && (
-                <span style={{ fontSize:12, color:"#854d0e", fontWeight:600 }}>
-                  📐 {importLimit}/{exam?.maxScore||100} conversion active
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:20 }}>
-            <button style={css.btn()} onClick={() => templateFileRef.current?.click()}>📂 Choose Bulk File (.xlsx)</button>
-            <button style={css.btn("ghost")} onClick={downloadBulkTemplate}>📋 Download Bulk Template</button>
-            <input ref={templateFileRef} type="file"
-              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              style={{ display:"none" }} onChange={handleBulkFile} />
-          </div>
-          <div style={{ background:colors.light, borderRadius:8, padding:"12px 16px", overflowX:"auto" }}>
-            <div style={{ fontWeight:600, fontSize:12, marginBottom:8, color:colors.muted }}>EXPECTED FORMAT</div>
-            <table style={{ ...css.table, fontSize:12 }}>
-              <thead>
-                <tr>
-                  <th style={css.th}>AdmNo</th><th style={css.th}>Name</th>
-                  {subjects.filter(s=>(s.levels||[]).includes(selLevel)).slice(0,4).map(s=>
-                    <th key={s.id} style={css.th}>{s.code}</th>
+              <div className="grid gap-1.5">
+                <Label htmlFor="bulk-limit">
+                  Score Limit for all subjects
+                  <span className="ms-1.5 text-[11px] font-normal text-muted-foreground">
+                    (applies to every subject column — blank = exam max: {examMax})
+                  </span>
+                </Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    id="bulk-limit" type="number" min={1} className={cn("w-28", importIsCustom && "border-amber-500 bg-amber-50")}
+                    value={importLimit} placeholder={String(examMax)}
+                    onChange={e => setImportLimit(e.target.value)}
+                  />
+                  {importLimit && (
+                    <Button
+                      variant="ghost" size="icon" className="text-destructive hover:text-destructive"
+                      onClick={() => setImportLimit("")} aria-label="Clear score limit"
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                    </Button>
                   )}
-                </tr>
-              </thead>
-              <tbody>
-                {[["ADM001","Fatima Hassan","87","72","94","65"],["ADM002","Omar Khalid","55","61","70","80"]].map(([a,n,...sc])=>(
-                  <tr key={a}>
-                    <td style={css.td}>{a}</td><td style={css.td}>{n}</td>
-                    {sc.map((v,i)=><td key={i} style={css.td}>{v}</td>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p style={{ fontSize:11, color:colors.muted, marginTop:8 }}>
-              Subject codes shown above are from your registered subjects. The bulk template download pre-fills all of them.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* IMPORT PREVIEW MODAL */}
-      {importPreview && (
-        <div style={css.modal}>
-          <div style={{ ...css.modalBox, maxWidth:740 }}>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:10, justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-              <div style={css.modalTitle}>
-                {importPreview.isBulk ? "📦 Bulk" : "📥"} Import Preview — {importPreview.fileName}
+                  {importIsCustom && (
+                    <Badge variant="secondary" className="gap-1 bg-amber-100 text-amber-900">
+                      <Ruler className="size-3" aria-hidden="true" />
+                      {importLimit}/{examMax} conversion active
+                    </Badge>
+                  )}
+                </div>
               </div>
-              <button onClick={() => setImportPreview(null)}
-                style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:colors.muted }}>×</button>
-            </div>
 
-            <div style={{ display:"flex", gap:10, marginBottom:14, flexWrap:"wrap" }}>
-              <div style={{ background:"#dcfce7", color:"#166534", borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:13 }}>
-                ✓ {importPreview.matched.length} score(s) ready
+              <div className="flex flex-wrap gap-2.5">
+                <Button onClick={() => templateFileRef.current?.click()}>
+                  <FolderOpen className="size-4" aria-hidden="true" />
+                  Choose Bulk File (.xlsx)
+                </Button>
+                <Button variant="secondary" onClick={downloadBulkTemplate}>
+                  <FileDown className="size-4" aria-hidden="true" />
+                  Download Bulk Template
+                </Button>
+                <input
+                  ref={templateFileRef} type="file" className="hidden" onChange={handleBulkFile}
+                  accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                />
               </div>
-              {importPreview.isBulk && (
-                <div style={{ background:"#dbeafe", color:"#1e40af", borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:13 }}>
-                  📚 {[...new Set(importPreview.matched.map(m=>m.subjectId))].length} subject(s) detected
-                </div>
-              )}
-              {!importPreview.isBulk && importPreview.subjectId && (
-                <div style={{ background:colors.light, color:colors.primary, borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:13 }}>
-                  📚 {subjects.find(s=>s.id===importPreview.subjectId)?.name || "Unknown subject"}
-                </div>
-              )}
-              {importPreview.isCustom && (
-                <div style={{ background:"#fef9c3", color:"#854d0e", borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:13 }}>
-                  📐 Converted: /{importPreview.limitVal} → /{importPreview.examMax}
-                </div>
-              )}
-              {importPreview.unmatched.length > 0 && (
-                <div style={{ background:"#fee2e2", color:"#991b1b", borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:13 }}>
-                  ⚠ {importPreview.unmatched.length} row(s) skipped
-                </div>
-              )}
-            </div>
 
-            {importPreview.unmatched.length > 0 && (
-              <div style={{ background:"#fef9c3", border:"1px solid #fde047", borderRadius:6, padding:"8px 12px", marginBottom:12, fontSize:12, color:"#854d0e" }}>
-                <strong>Skipped:</strong> {importPreview.unmatched.map(u=>`Row ${u.row}: ${u.admNo||u.name} — ${u.reason}`).join(" · ")}
+              <div className="overflow-x-auto rounded-lg bg-muted p-4">
+                <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Expected format</p>
+                <Table className="text-xs">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>AdmNo</TableHead><TableHead>Name</TableHead>
+                      {levelSubjects.slice(0, 4).map(s => <TableHead key={s.id}>{s.code}</TableHead>)}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[["ADM001","Fatima Hassan","87","72","94","65"],["ADM002","Omar Khalid","55","61","70","80"]].map(([a,n,...sc]) => (
+                      <TableRow key={a}>
+                        <TableCell>{a}</TableCell><TableCell>{n}</TableCell>
+                        {sc.slice(0, levelSubjects.slice(0, 4).length).map((v, i) => <TableCell key={i}>{v}</TableCell>)}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  The subject codes shown are from your registered subjects. The bulk template download pre-fills all of them.
+                </p>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── CLEAR RESULTS ── */}
+        <TabsContent value="clear">
+          <Card>
+            <CardContent className="space-y-3 p-4 md:p-6">
+              <div>
+                <h3 className="text-[15px] font-bold text-primary">Clear / Delete Results</h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Select what to delete. Deletions are permanent — download a backup first if needed.
+                </p>
+              </div>
+
+              {(() => {
+                const examResults = selExam ? results.filter(r => r.examId === selExam) : [];
+                const subjectResults = selExam && selSubject
+                  ? results.filter(r => r.examId === selExam && r.subjectId === selSubject) : [];
+                const classResults = selExam && selGrade && selStream
+                  ? results.filter(r => {
+                      const stu = students.find(s => s.id === r.studentId);
+                      return r.examId === selExam && stu?.grade === selGrade && stu?.stream === selStream;
+                    }) : [];
+                const stuResults = delStuId ? results.filter(r => r.studentId === delStuId) : [];
+
+                const doDelete = (label, filterFn) => showConfirm(
+                  `Delete all results for ${label}?`,
+                  () => { setResults(prev => prev.filter(r => !filterFn(r))); showToast(`Results for ${label} deleted.`); },
+                  { danger: true, subMessage: "This cannot be undone. Download a backup first if needed." }
+                );
+
+                return (
+                  <div className="flex flex-col gap-3">
+                    {/* By exam + subject */}
+                    <section className="rounded-lg bg-muted p-4">
+                      <p className="font-bold text-primary">By Subject</p>
+                      <p className="mb-2.5 text-xs text-muted-foreground">
+                        Delete all scores for one subject within the selected exam.{" "}
+                        <strong>{subjectResults.length}</strong> record(s) match.
+                      </p>
+                      <div className="flex flex-wrap items-end gap-2.5">
+                        <div className="grid min-w-[200px] flex-1 gap-1.5">
+                          <Label htmlFor="del-subject">Subject</Label>
+                          <Select items={subjectItems} value={selSubject || NONE} onValueChange={v => setSelSubject(fromNone(v))}>
+                            <SelectTrigger id="del-subject" className="w-full overflow-hidden"><SelectValue className="truncate" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NONE}>— Select —</SelectItem>
+                              {levelSubjects.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          disabled={!selExam || !selSubject || !subjectResults.length}
+                          onClick={() => {
+                            const subName = subjects.find(s => s.id === selSubject)?.name || selSubject;
+                            const examName = exams.find(e => e.id === selExam)?.examName || selExam;
+                            doDelete(`${subName} (${examName})`,
+                              r => r.examId === selExam && r.subjectId === selSubject);
+                          }}
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />
+                          Delete {subjectResults.length} Record(s)
+                        </Button>
+                      </div>
+                    </section>
+
+                    {/* By exam + class */}
+                    <section className="rounded-lg bg-muted p-4">
+                      <p className="font-bold text-primary">By Class</p>
+                      <p className="mb-2.5 text-xs text-muted-foreground">
+                        Delete all scores for an entire class (grade + stream) within the selected exam.{" "}
+                        <strong>{classResults.length}</strong> record(s) match.
+                      </p>
+                      <div className="flex flex-wrap items-end gap-2.5">
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="del-grade">Grade</Label>
+                          <Select value={selGrade} onValueChange={setSelGrade}>
+                            <SelectTrigger id="del-grade" className="w-[140px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {gradesFor(selLevel).map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="del-stream">Stream</Label>
+                          <Select value={selStream} onValueChange={setSelStream}>
+                            <SelectTrigger id="del-stream" className="w-[110px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {streamsFor(selLevel).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          disabled={!selExam || !classResults.length}
+                          onClick={() => {
+                            const examName = exams.find(e => e.id === selExam)?.examName || selExam;
+                            doDelete(`${selGrade} Stream ${selStream} (${examName})`, r => {
+                              const stu = students.find(s => s.id === r.studentId);
+                              return r.examId === selExam && stu?.grade === selGrade && stu?.stream === selStream;
+                            });
+                          }}
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />
+                          Delete {classResults.length} Record(s)
+                        </Button>
+                      </div>
+                    </section>
+
+                    {/* By entire exam */}
+                    <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                      <p className="font-bold text-destructive">Entire Exam</p>
+                      <p className="mb-2.5 text-xs text-destructive">
+                        Delete ALL results for the selected exam across every subject and class.{" "}
+                        <strong>{examResults.length}</strong> record(s) will be deleted.
+                      </p>
+                      <Button
+                        variant="destructive"
+                        disabled={!selExam || !examResults.length}
+                        onClick={() => {
+                          const examName = exams.find(e => e.id === selExam)?.examName || selExam;
+                          doDelete(`entire exam: ${examName}`, r => r.examId === selExam);
+                        }}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                        Delete ALL {examResults.length} Result(s) for This Exam
+                      </Button>
+                    </section>
+
+                    {/* By student */}
+                    <section className="rounded-lg bg-muted p-4">
+                      <p className="font-bold text-primary">By Student</p>
+                      <p className="mb-2.5 text-xs text-muted-foreground">
+                        Delete all results for one student across every exam and subject.
+                        {delStuId && <> <strong>{stuResults.length}</strong> record(s) found.</>}
+                      </p>
+                      <div className="flex flex-wrap items-end gap-2.5">
+                        <div className="grid min-w-[220px] flex-1 gap-1.5">
+                          <Label htmlFor="del-student">Student</Label>
+                          <Select items={studentItems} value={delStuId || NONE} onValueChange={v => setDelStuId(fromNone(v))}>
+                            <SelectTrigger id="del-student" className="w-full overflow-hidden"><SelectValue className="truncate" /></SelectTrigger>
+                            <SelectContent className="max-h-[280px]">
+                              <SelectItem value={NONE}>— Select —</SelectItem>
+                              {students.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name} ({s.admNo})</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          disabled={!delStuId || !stuResults.length}
+                          onClick={() => {
+                            const stu = students.find(s => s.id === delStuId);
+                            doDelete(`${stu?.name} (all exams)`, r => r.studentId === delStuId);
+                            setDelStuId("");
+                          }}
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />
+                          Delete {stuResults.length} Record(s)
+                        </Button>
+                      </div>
+                    </section>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* ── IMPORT PREVIEW ── */}
+      <Dialog open={Boolean(importPreview)} onOpenChange={(o) => { if (!o) setImportPreview(null); }}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-[760px]">
+          <DialogHeader>
+            <DialogTitle>
+              {importPreview?.isBulk ? "Bulk " : ""}Import Preview — {importPreview?.fileName}
+            </DialogTitle>
+            <DialogDescription>
+              Nothing is written until you confirm. Existing scores for the same student and subject are overwritten.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary" className="bg-green-100 py-1 text-green-800">
+              {importPreview?.matched.length} score(s) ready
+            </Badge>
+            {importPreview?.isBulk && (
+              <Badge variant="secondary" className="bg-blue-100 py-1 text-blue-800">
+                {[...new Set(importPreview.matched.map(m => m.subjectId))].length} subject(s) detected
+              </Badge>
             )}
-
-            <div style={{ maxHeight:300, overflowY:"auto", overflowX:"auto", border:`1px solid ${colors.border}`, borderRadius:8, marginBottom:16 }}>
-              <table style={css.table}>
-                <thead>
-                  <tr>
-                    <th style={css.th}>#</th>
-                    <th style={css.th}>Adm No</th>
-                    <th style={css.th}>Student</th>
-                    {importPreview.isBulk && <th style={css.th}>Subject</th>}
-                    {importPreview.isCustom && <th style={css.th}>Raw / {importPreview.limitVal}</th>}
-                    <th style={css.th}>{importPreview.isCustom ? `Stored / ${importPreview.examMax}` : "Score"}</th>
-                    <th style={css.th}>%</th>
-                    <th style={css.th}>CBC</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {importPreview.matched.map((m, i) => {
-                    const examObj = exams.find(e => e.id === importPreview.examId);
-                    const cbeR = examObj ? cbe(+m.score, examObj.maxScore) : null;
-                    const pct  = examObj ? Math.round((+m.score / examObj.maxScore) * 100) : null;
-                    const sub  = importPreview.isBulk ? subjects.find(s => s.id === m.subjectId) : null;
-                    return (
-                      <tr key={i} style={{ background: i%2===0 ? "#fff" : colors.light }}>
-                        <td style={{ ...css.td, color:colors.muted }}>{i+1}</td>
-                        <td style={{ ...css.td, fontWeight:700, color:colors.primary }}>{m.admNo}</td>
-                        <td style={css.td}>{m.name}</td>
-                        {importPreview.isBulk && (
-                          <td style={css.td}><span style={css.badge(colors.primary,"#e8f0ed")}>{sub?.code||"?"}</span></td>
-                        )}
-                        {importPreview.isCustom && (
-                          <td style={{ ...css.td, color:colors.muted }}>{m.rawScore}</td>
-                        )}
-                        <td style={{ ...css.td, fontWeight:700, color:colors.primary }}>{m.score}</td>
-                        <td style={{ ...css.td, fontWeight:700, color: pct >= 70 ? "#166534" : pct >= 50 ? "#854d0e" : "#991b1b" }}>
-                          {pct !== null ? `${pct}%` : "—"}
-                        </td>
-                        <td style={css.td}>
-                          {cbeR ? <span style={css.badge(cbeR.color, cbeR.bg)}>{cbeR.code}</span> : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={css.formActions}>
-              <button style={css.btn("ghost")} onClick={() => setImportPreview(null)}>Cancel</button>
-              <button style={css.btn()} onClick={commitImport} disabled={!importPreview.matched.length}>
-                ✓ Import {importPreview.matched.length} Score(s)
-                {importPreview.isCustom && ` (converted from /${importPreview.limitVal})`}
-              </button>
-            </div>
+            {!importPreview?.isBulk && importPreview?.subjectId && (
+              <Badge variant="secondary" className="bg-[#e8f0ed] py-1 text-primary">
+                {subjects.find(s => s.id === importPreview.subjectId)?.name || "Unknown subject"}
+              </Badge>
+            )}
+            {importPreview?.isCustom && (
+              <Badge variant="secondary" className="gap-1 bg-amber-100 py-1 text-amber-900">
+                <Ruler className="size-3" aria-hidden="true" />
+                Converted: /{importPreview.limitVal} → /{importPreview.examMax}
+              </Badge>
+            )}
+            {importPreview?.unmatched.length > 0 && (
+              <Badge variant="secondary" className="bg-red-100 py-1 text-red-800">
+                {importPreview.unmatched.length} row(s) skipped
+              </Badge>
+            )}
           </div>
-        </div>
-      )}
 
-      {/* ── CLEAR RESULTS TAB ── */}
-      {importTab === "clear" && (
-        <div style={{ ...css.card, borderRadius:"0 8px 8px 8px" }}>
-          <div style={{ fontWeight:700, color:colors.primary, fontSize:15, marginBottom:8 }}>🗑 Clear / Delete Results</div>
-          <p style={{ fontSize:13, color:colors.muted, marginBottom:20, lineHeight:1.6 }}>
-            Select what to delete. Deletions are permanent — download a backup first if needed.
-          </p>
+          {importPreview?.unmatched.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+              <strong>Skipped:</strong>{" "}
+              {importPreview.unmatched.map(u => `Row ${u.row}: ${u.admNo || u.name} — ${u.reason}`).join(" · ")}
+            </div>
+          )}
 
-          {(()=>{
-            const examResults = selExam ? results.filter(r => r.examId === selExam) : [];
-            const subjectResults = selExam && selSubject
-              ? results.filter(r => r.examId === selExam && r.subjectId === selSubject) : [];
-            const classResults = selExam && selGrade && selStream
-              ? results.filter(r => {
-                  const stu = students.find(s => s.id === r.studentId);
-                  return r.examId === selExam && stu?.grade === selGrade && stu?.stream === selStream;
-                }) : [];
-            const stuResults = delStuId ? results.filter(r => r.studentId === delStuId) : [];
+          <div className="max-h-[300px] overflow-auto rounded-lg border">
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>#</TableHead>
+                  <TableHead>Adm No</TableHead>
+                  <TableHead>Student</TableHead>
+                  {importPreview?.isBulk && <TableHead>Subject</TableHead>}
+                  {importPreview?.isCustom && <TableHead>Raw / {importPreview.limitVal}</TableHead>}
+                  <TableHead>{importPreview?.isCustom ? `Stored / ${importPreview.examMax}` : "Score"}</TableHead>
+                  <TableHead>%</TableHead>
+                  <TableHead>CBC</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {importPreview?.matched.map((m, i) => {
+                  const examObj = exams.find(e => e.id === importPreview.examId);
+                  const cbeR = examObj ? cbe(+m.score, examObj.maxScore) : null;
+                  const pct = examObj ? Math.round((+m.score / examObj.maxScore) * 100) : null;
+                  const sub = importPreview.isBulk ? subjects.find(s => s.id === m.subjectId) : null;
+                  return (
+                    <TableRow key={i} className={i % 2 === 1 ? "bg-muted/50" : undefined}>
+                      <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                      <TableCell className="font-bold text-primary">{m.admNo}</TableCell>
+                      <TableCell className="whitespace-nowrap">{m.name}</TableCell>
+                      {importPreview.isBulk && (
+                        <TableCell>
+                          <Badge variant="secondary" className="bg-[#e8f0ed] text-primary">{sub?.code || "?"}</Badge>
+                        </TableCell>
+                      )}
+                      {importPreview.isCustom && (
+                        <TableCell className="tabular-nums text-muted-foreground">{m.rawScore}</TableCell>
+                      )}
+                      <TableCell className="font-bold tabular-nums text-primary">{m.score}</TableCell>
+                      <TableCell className={cn("font-bold tabular-nums", pct !== null ? pctClass(pct) : "text-muted-foreground")}>
+                        {pct !== null ? `${pct}%` : "—"}
+                      </TableCell>
+                      <TableCell><CbcBadge level={cbeR} /></TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
 
-            const doDelete = (label, filterFn) => showConfirm(
-              `Delete all results for ${label}?`,
-              () => { setResults(prev => prev.filter(r => !filterFn(r))); showToast(`Results for ${label} deleted.`); },
-              { danger: true, subMessage: "This cannot be undone. Download a backup first if needed." }
-            );
-
-            return (
-            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-
-                {/* By exam + subject */}
-                <div style={{ background:colors.light, borderRadius:10, padding:16 }}>
-                  <div style={{ fontWeight:700, color:colors.primary, marginBottom:4 }}>By Subject</div>
-                  <div style={{ fontSize:12, color:colors.muted, marginBottom:10 }}>
-                    Delete all scores for one subject within the selected exam.
-                    {" "}<strong>{subjectResults.length}</strong> record(s) match.
-                  </div>
-                  <div style={{ display:"flex", gap:10, alignItems:"flex-end", flexWrap:"wrap" }}>
-                    <div style={{ flex:1, minWidth:200 }}>
-                      <label style={css.label}>Subject</label>
-                      <select style={css.select} value={selSubject} onChange={e => setSelSubject(e.target.value)}>
-                        <option value="">— Select —</option>
-                        {subjects.filter(s => (s.levels||[]).includes(selLevel)).map(s =>
-                          <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
-                        )}
-                      </select>
-                    </div>
-                    <button
-                      style={{ ...css.btn("danger"), opacity: (!selExam || !selSubject || !subjectResults.length) ? .5 : 1 }}
-                      disabled={!selExam || !selSubject || !subjectResults.length}
-                      onClick={() => {
-                        const subName = subjects.find(s => s.id === selSubject)?.name || selSubject;
-                        const examName = exams.find(e => e.id === selExam)?.examName || selExam;
-                        doDelete(`${subName} (${examName})`,
-                          r => r.examId === selExam && r.subjectId === selSubject);
-                      }}>
-                      🗑 Delete {subjectResults.length} Record(s)
-                    </button>
-                  </div>
-                </div>
-
-                {/* By exam + class */}
-                <div style={{ background:colors.light, borderRadius:10, padding:16 }}>
-                  <div style={{ fontWeight:700, color:colors.primary, marginBottom:4 }}>By Class</div>
-                  <div style={{ fontSize:12, color:colors.muted, marginBottom:10 }}>
-                    Delete all scores for an entire class (grade + stream) within the selected exam.
-                    {" "}<strong>{classResults.length}</strong> record(s) match.
-                  </div>
-                  <div style={{ display:"flex", gap:10, alignItems:"flex-end", flexWrap:"wrap" }}>
-                    <div>
-                      <label style={css.label}>Grade</label>
-                      <select style={{ ...css.select, width:130 }} value={selGrade} onChange={e => setSelGrade(e.target.value)}>
-                        {gradesFor(selLevel).map(g => <option key={g}>{g}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={css.label}>Stream</label>
-                      <select style={{ ...css.select, width:100 }} value={selStream} onChange={e => setSelStream(e.target.value)}>
-                        {streamsFor(selLevel).map(s => <option key={s}>{s}</option>)}
-                      </select>
-                    </div>
-                    <button
-                      style={{ ...css.btn("danger"), opacity: (!selExam || !classResults.length) ? .5 : 1 }}
-                      disabled={!selExam || !classResults.length}
-                      onClick={() => {
-                        const examName = exams.find(e => e.id === selExam)?.examName || selExam;
-                        doDelete(`${selGrade} Stream ${selStream} (${examName})`,
-                          r => {
-                            const stu = students.find(s => s.id === r.studentId);
-                            return r.examId === selExam && stu?.grade === selGrade && stu?.stream === selStream;
-                          });
-                      }}>
-                      🗑 Delete {classResults.length} Record(s)
-                    </button>
-                  </div>
-                </div>
-
-                {/* By entire exam */}
-                <div style={{ background:"#fef2f2", border:`1px solid #fecaca`, borderRadius:10, padding:16 }}>
-                  <div style={{ fontWeight:700, color:"#991b1b", marginBottom:4 }}>Entire Exam</div>
-                  <div style={{ fontSize:12, color:"#991b1b", marginBottom:10 }}>
-                    Delete ALL results for the selected exam across all subjects and classes.
-                    {" "}<strong>{examResults.length}</strong> record(s) will be deleted.
-                  </div>
-                  <button
-                    style={{ ...css.btn("danger"), opacity: (!selExam || !examResults.length) ? .5 : 1 }}
-                    disabled={!selExam || !examResults.length}
-                    onClick={() => {
-                      const examName = exams.find(e => e.id === selExam)?.examName || selExam;
-                      doDelete(`entire exam: ${examName}`, r => r.examId === selExam);
-                    }}>
-                    🗑 Delete ALL {examResults.length} Result(s) for This Exam
-                  </button>
-                </div>
-
-                {/* Delete by student */}
-                <div style={{ background:colors.light, borderRadius:10, padding:16 }}>
-                  <div style={{ fontWeight:700, color:colors.primary, marginBottom:4 }}>By Student</div>
-                  <div style={{ fontSize:12, color:colors.muted, marginBottom:10 }}>
-                    Delete all results for one student across all exams and subjects.
-                    {delStuId && <span> <strong>{stuResults.length}</strong> record(s) found.</span>}
-                  </div>
-                  <div style={{ display:"flex", gap:10, alignItems:"flex-end", flexWrap:"wrap" }}>
-                    <div style={{ flex:1, minWidth:220 }}>
-                      <label style={css.label}>Student</label>
-                      <select style={css.select} value={delStuId} onChange={e => setDelStuId(e.target.value)}>
-                        <option value="">— Select —</option>
-                        {students.map(s => <option key={s.id} value={s.id}>{s.name} ({s.admNo})</option>)}
-                      </select>
-                    </div>
-                    <button
-                      style={{ ...css.btn("danger"), opacity: (!delStuId || !stuResults.length) ? .5 : 1 }}
-                      disabled={!delStuId || !stuResults.length}
-                      onClick={() => {
-                        const stu = students.find(s => s.id === delStuId);
-                        doDelete(`${stu?.name} (all exams)`, r => r.studentId === delStuId);
-                        setDelStuId("");
-                      }}>
-                      🗑 Delete {stuResults.length} Record(s)
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setImportPreview(null)}>Cancel</Button>
+            <Button onClick={commitImport} disabled={!importPreview?.matched.length}>
+              <Check className="size-4" aria-hidden="true" />
+              Import {importPreview?.matched.length} Score(s)
+              {importPreview?.isCustom && ` (converted from /${importPreview.limitVal})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

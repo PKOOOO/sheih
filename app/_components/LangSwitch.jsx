@@ -1,15 +1,37 @@
-// Small EN/AR language toggle, extracted from App() in index.jsx.
-export default function LangSwitch({ lang, setLang, colors }) {
+"use client";
+import { Button } from "@/components/ui/button";
+
+const LANGS = [
+  { code: "en", label: "English" },
+  { code: "ar", label: "عربي" },
+];
+
+// Small EN/AR language toggle. Rendered on the dark sidebar and on the light
+// login card, so the inactive state stays transparent and inherits its border
+// from whichever surface it sits on.
+export default function LangSwitch({ lang, setLang, onSidebar = false }) {
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-      {["en", "ar"].map(l => (
-        <button key={l} onClick={() => setLang(l)} style={{
-          padding: "4px 12px", borderRadius: 6, border: `1px solid ${colors.border}`,
-          background: lang === l ? colors.primary : "#fff",
-          color: lang === l ? "#fff" : colors.text,
-          cursor: "pointer", fontSize: 13, fontWeight: 600,
-        }}>{l === "en" ? "English" : "عربي"}</button>
-      ))}
+    <div role="group" aria-label="Language" className="flex items-center gap-1.5">
+      {LANGS.map(({ code, label }) => {
+        const active = lang === code;
+        return (
+          <Button
+            key={code}
+            type="button"
+            size="sm"
+            variant={active ? "default" : "outline"}
+            aria-pressed={active}
+            onClick={() => setLang(code)}
+            className={
+              onSidebar && !active
+                ? "border-white/20 bg-transparent text-sidebar-foreground hover:bg-white/10 hover:text-gold"
+                : undefined
+            }
+          >
+            {label}
+          </Button>
+        );
+      })}
     </div>
   );
 }
