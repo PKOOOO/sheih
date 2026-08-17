@@ -89,7 +89,6 @@ export default function LoginScreen({ t, dir, lang, setLang, setCurrentUser, set
                 autoCorrect="off"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                placeholder="e.g. admin or 1064"
               />
             </div>
 
@@ -102,7 +101,6 @@ export default function LoginScreen({ t, dir, lang, setLang, setCurrentUser, set
                 autoComplete="current-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
               />
             </div>
 
